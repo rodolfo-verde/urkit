@@ -1,0 +1,32 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+*.egg
+
+# Virtual env
+.venv/
+
+# Tests
+.pytest_cache/
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Config (may contain robot IP)
+!.config/
+config.yaml
+*.db
+
+# AI assistant configs
+CLAUDE.md
+QWEN.md
+.claude/
+.qwen/
