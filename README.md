@@ -1,5 +1,7 @@
 # URKit
 
+[![PyPI](https://img.shields.io/pypi/v/urkit.svg)](https://pypi.org/project/urkit/)
+
 **URKit** is a Python toolkit for [Universal Robots](https://www.universal-robots.com/) e-Series robots that makes the common stuff simple and gets out of the way for everything else.
 
 Built on [`ur_rtde`](https://sdurobotics.gitlab.io/ur_rtde/), it packages the operations you reach for most: connecting, moving to named points, gripper control, telemetry, and I/O, while exposing the raw RTDE interfaces for anything deeper. It doesn't try to replace `ur_rtde`; it sits on top of it so you can use both in tandem.

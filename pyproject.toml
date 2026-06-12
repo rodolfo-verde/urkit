@@ -12,6 +12,9 @@ requires-python = ">=3.8"
 authors = [
     {name = "URKit Contributors"},
 ]
+
+[project.urls]
+Repository = "https://github.com/rodolfo-verde/urkit"
 keywords = [
     "universal-robots",
     "ur3e",
