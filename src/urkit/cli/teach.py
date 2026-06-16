@@ -250,11 +250,12 @@ def _draw_screen(
     # Control reference
     lines.append(f"  {yellow('MOVE:')}    {yellow('W/S')}: ±X  {yellow('A/D')}: ±Y  {yellow('Q/E')}: ±Z")
     lines.append(f"  {yellow('ORIENT:')}  {yellow('U/O')}: ±Roll  {yellow('I/K')}: ±Pitch  {yellow('J/L')}: ±Yaw")
-    lines.append(f"  {yellow('STEP:')}    {yellow('1')}: Set Linear (mm)  {yellow('2')}: Set Angular (°)  {yellow('.')}: Reset")
-    lines.append(f"  {yellow('GRIPPER:')} {yellow('X')}: Open  {yellow('C')}: Close  {yellow('V')}: Set Position")
+    lines.append(f"  {yellow('STEP:')}    {yellow('1')}: Linear (mm)  {yellow('2')}: Angular (°)  {yellow('.')}: Reset")
+    lines.append(f"  {yellow('GRIPPER:')} {yellow('X')}: Open  {yellow('C')}: Close  {yellow('V')}: Position")
     lines.append(f"  {yellow('POINTS:')}  {yellow('B')}: Save  {yellow('G')}: Go To  {yellow('H')}: Delete  {yellow('R')}: Rename")
-    lines.append(f"  {yellow('OTHER:')}   {yellow('F')}: Freedrive  {yellow('M')}: Frame  {yellow('N')}: Go To Mode  {yellow('T')}: TCP Down  {yellow('0')}: Speed  {yellow('Y')}: Save Config")
-    lines.append(f"  {yellow('ESC')}:     Exit")
+    lines.append(f"  {yellow('OTHER:')}   {yellow('P')}: Explorer  {yellow('F')}: Freedrive  {yellow('M')}: Frame  {yellow('N')}: GoTo Mode")
+    lines.append(f"  {yellow('OTHER:')}   {yellow('T')}: TCP Down  {yellow('0')}: Speed  {yellow('Y')}: Save Config")
+    lines.append(f"  Exit: {yellow('ESC')}")
     lines.append(dim("=" * width))
 
     # Clear and redraw
@@ -293,6 +294,7 @@ def _draw_help() -> None:
     lines.append("    G      → Go to saved point (ask cartesian/joint)")
     lines.append("    H      → Delete saved point")
     lines.append("    R      → Rename saved point")
+    lines.append("    P      → Open points explorer")
     lines.append("")
     lines.append("  OTHER:")
     lines.append("    F      → Cycle freedrive: OFF → ALL → XYZ → OFF")
