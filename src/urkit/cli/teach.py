@@ -253,8 +253,9 @@ def _draw_screen(
     lines.append(f"  {yellow('STEP:')}    {yellow('1')}: Linear (mm)  {yellow('2')}: Angular (°)  {yellow('.')}: Reset")
     lines.append(f"  {yellow('GRIPPER:')} {yellow('X')}: Open  {yellow('C')}: Close  {yellow('V')}: Position")
     lines.append(f"  {yellow('POINTS:')}  {yellow('B')}: Save  {yellow('G')}: Go To  {yellow('H')}: Delete  {yellow('R')}: Rename  {yellow('P')}: Explorer")
-    lines.append(f"  {yellow('OTHER:')}   {yellow('F')}: Freedrive  {yellow('M')}: Frame  {yellow('N')}: GoTo Mode  {yellow('T')}: TCP Down  {yellow('0')}: Speed  {yellow('Y')}: Save Config")
-    lines.append(f"  {yellow('ESC')}:     Exit")
+    lines.append(f"  {yellow('OTHER:')}   {yellow('F')}: Freedrive  {yellow('M')}: Frame  {yellow('N')}: GoTo Mode")
+    lines.append(f"  {yellow('OTHER:')}   {yellow('T')}: TCP Down  {yellow('0')}: Speed  {yellow('Y')}: Save Config")
+    lines.append(f"  Exit: {yellow('ESC')}")
     lines.append(dim("=" * width))
 
     # Clear and redraw
@@ -302,7 +303,7 @@ def _draw_help() -> None:
     lines.append("    0      → Set speed slider (0-100%)")
     lines.append("    Y      → Save config (IP, gripper, points path)")
     lines.append("")
-    lines.append("  ESC    → Exit")
+    lines.append("  Exit   → ESC")
     lines.append("=" * width)
     print("\n".join(lines))
 
