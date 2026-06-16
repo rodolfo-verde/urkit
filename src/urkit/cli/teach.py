@@ -101,10 +101,15 @@ def _compute_vel_acc(
         acc = min(vel * 3.0, _MAX_ACC)
     return vel, acc
 
-def _save_config(config: dict) -> None:
-    """Write configuration to <script_dir>/config.yaml."""
+def _save_config(config: dict, path: str | Path | None = None) -> None:
+    """Write configuration to config.yaml.
+
+    Args:
+        config: Configuration dict to save.
+        path: Explicit path. Falls back to resolved default config path.
+    """
     try:
-        config_path = _resolve_default_config_path()
+        config_path = Path(path) if path is not None else _resolve_default_config_path()
         config_path.parent.mkdir(parents=True, exist_ok=True)
         with open(config_path, "w") as f:
             yaml.dump(config, f, default_flow_style=False)
@@ -248,7 +253,7 @@ def _draw_screen(
     lines.append(f"  {yellow('STEP:')}    {yellow('1')}: Set Linear (mm)  {yellow('2')}: Set Angular (°)  {yellow('.')}: Reset")
     lines.append(f"  {yellow('GRIPPER:')} {yellow('X')}: Open  {yellow('C')}: Close  {yellow('V')}: Set Position")
     lines.append(f"  {yellow('POINTS:')}  {yellow('B')}: Save  {yellow('G')}: Go To  {yellow('H')}: Delete  {yellow('R')}: Rename")
-    lines.append(f"  {yellow('OTHER:')}   {yellow('F')}: Freedrive  {yellow('M')}: Frame  {yellow('N')}: Go To Mode  {yellow('T')}: TCP Down  {yellow('0')}: Speed")
+    lines.append(f"  {yellow('OTHER:')}   {yellow('F')}: Freedrive  {yellow('M')}: Frame  {yellow('N')}: Go To Mode  {yellow('T')}: TCP Down  {yellow('0')}: Speed  {yellow('Y')}: Save Config")
     lines.append(f"  {yellow('ESC')}:     Exit")
     lines.append(dim("=" * width))
 
@@ -294,6 +299,7 @@ def _draw_help() -> None:
     lines.append("    M      → Toggle move frame: BASE / TOOL")
     lines.append("    T      → Orient TCP downward (roll=180°)")
     lines.append("    0      → Set speed slider (0-100%)")
+    lines.append("    Y      → Save config (IP, gripper, points path)")
     lines.append("")
     lines.append("  ESC    → Exit")
     lines.append("=" * width)
@@ -710,6 +716,10 @@ class _ScreenLogHandler(logging.Handler):
 
 def _teach_pendant(
     robot: URRobot,
+    *,
+    config_path: str | Path | None = None,
+    current_gripper_name: str | None = None,
+    current_points_path: str | None = None,
 ) -> None:
     """Run the interactive teach pendant loop.
 
@@ -1016,6 +1026,19 @@ def _teach_pendant(
                         messages.append(f"Error: {e}")
                     command_handled = True
 
+                # --- Save config ---
+                elif key == "y":
+                    save_cfg: dict = {}
+                    save_cfg["robot_ip"] = robot.ip
+                    if current_gripper_name:
+                        save_cfg["gripper"] = current_gripper_name
+                    if current_points_path:
+                        save_cfg["points_path"] = current_points_path
+                    _save_config(save_cfg, config_path)
+                    target = Path(config_path) if config_path else _resolve_default_config_path()
+                    messages.append(f"Config saved to {target}")
+                    command_handled = True
+
                 # --- Redraw after movement or command ---
                 if moved or command_handled:
                     _draw_screen(robot, state, messages)
@@ -1058,12 +1081,15 @@ def teach_command(args) -> None:
     else:
         logging.basicConfig(level=logging.WARNING)
 
-    # Load config (last-used defaults)
-    config = load_config()
+    # Load config
+    config = load_config(args.config)
 
     # Resolve effective values: CLI arg > config > None
     ip = args.ip or config.get("robot_ip")
     gripper_name = args.gripper or config.get("gripper")
+    # "none" is an explicit CLI override — don't fall through to config
+    if gripper_name and gripper_name.lower() == "none":
+        gripper_name = None
     points_path = args.points or config.get("points_path") or "points.db"
 
     # Resolve gripper constructor params from config.yaml gripper_config section
@@ -1149,18 +1175,13 @@ def teach_command(args) -> None:
             )
         sys.exit(1)
 
-    # Auto-save last-used params to config
-    print(f"  Saving config...", flush=True)
-    save_cfg = dict(config)
-    save_cfg["robot_ip"] = ip
-    if gripper_name:
-        save_cfg["gripper"] = gripper_name
-    save_cfg["points_path"] = points_path
-    _save_config(save_cfg)
-    print(f"  Config saved.", flush=True)
-
     try:
-        _teach_pendant(robot)
+        _teach_pendant(
+            robot,
+            config_path=args.config,
+            current_gripper_name=gripper_name,
+            current_points_path=points_path,
+        )
     except KeyboardInterrupt:
         pass
     finally:

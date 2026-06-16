@@ -41,8 +41,8 @@ def main() -> None:
         "--gripper",
         type=str,
         default=None,
-        choices=["2f-85", "2f-140", "hand-e", "digital"],
-        help="Gripper preset (overrides config file)",
+        choices=["2f-85", "2f-140", "hand-e", "digital", "none"],
+        help="Gripper preset (overrides config file). Use 'none' to disable gripper",
     )
     teach_parser.add_argument(
         "--gripper-pin",
@@ -74,6 +74,12 @@ def main() -> None:
         type=str,
         default=None,
         help="Path to points.db file (overrides config file)",
+    )
+    teach_parser.add_argument(
+        "--config",
+        type=str,
+        default=None,
+        help="Path to config file (default: config.yaml in project root or CWD)",
     )
     teach_parser.add_argument(
         "-v", "--verbose",

@@ -80,17 +80,20 @@ urkit teach                           # reads IP from config.yaml
 | Flag | Description |
 |------|-------------|
 | `ip` | Robot IP address (positional, overrides config) |
-| `--gripper` | Gripper preset: `2f-85`, `2f-140`, `hand-e`, `digital` |
+| `--gripper` | Gripper preset: `2f-85`, `2f-140`, `hand-e`, `digital`, `none` |
 | `--gripper-pin` | Digital gripper output pin (default: 0) |
 | `--gripper-force` | Robotiq force 0-100 |
 | `--gripper-speed` | Robotiq speed 0-100 |
 | `--gripper-close-on-high` | Digital polarity: `true` or `false` |
 | `--points` | Path to `points.db` file (overrides config) |
+| `--config` | Path to config file (default: `config.yaml` in project root or CWD) |
 | `-v`, `--verbose` | Show verbose output (debug connection issues) |
 
 ```bash
 urkit teach 172.31.1.200 --gripper hand-e --points /path/to/points.db
 urkit teach --gripper digital --gripper-pin 3
+urkit teach --gripper none            # no gripper (overrides config)
+urkit teach --config /path/to/my.yaml # load custom config
 urkit teach -v                        # verbose mode
 ```
 
@@ -191,6 +194,7 @@ All movement and orientation keys support **hold-to-repeat** — hold a key down
         <tr><td><code>M</code></td><td>Toggle frame (BASE / TOOL)</td></tr>
         <tr><td><code>N</code></td><td>Go To mode (Cartesian / Joint)</td></tr>
         <tr><td><code>T</code></td><td>Orient TCP down (180°)</td></tr>
+        <tr><td><code>Y</code></td><td>Save config to file</td></tr>
         <tr><td><code>ESC</code></td><td>Exit</td></tr>
       </table>
     </td>
@@ -226,22 +230,110 @@ robot = URRobot(
 
 ### From Config
 
-Store your config in a `config.yaml`:
-
-```yaml
-robot_ip: 172.31.1.200
-points_path: points.db
-gripper: hand-e
-default_vel: 0.5
-default_acc: 0.3
-rtde_frequency: 125
-```
-
-Then load it:
-
 ```python
 robot = URRobot.from_config("config.yaml")
 robot = URRobot.from_config("config.yaml", ip="10.0.0.50")  # override IP
+```
+
+See the [Configuration](#configuration) section for full details on config location, keys, and saving.
+
+---
+
+## Configuration
+
+URKit uses a YAML config file (`config.yaml`) to persist settings between sessions. The CLI reads it automatically, and `URRobot.from_config()` loads it programmatically.
+
+### Config File Location
+
+URKit searches for `config.yaml` in this order:
+1. Explicit path via `--config` flag or `load_config("path")`
+2. Project root (where `src/urkit` lives)
+3. Current working directory
+
+If no config file exists, URKit uses built-in defaults and operates fine — the config is optional.
+
+### Config Keys
+
+| Key | Description | Example |
+|-----|-------------|---------|
+| `robot_ip` | Robot IP address | `192.168.1.100` |
+| `points_path` | Path to SQLite points database | `points.db` |
+| `gripper` | Gripper preset name | `hand-e`, `2f-85`, `2f-140`, `digital` |
+| `default_vel` | Default linear velocity (m/s) | `0.5` |
+| `default_acc` | Default linear acceleration (m/s²) | `0.3` |
+| `rtde_frequency` | RTDE communication frequency (Hz) | `125` |
+| `rtde_frequency` | RTDE communication frequency (Hz) | `125` |
+| `rtde_frequency` | RTDE communication frequency (Hz) | `125` |
+| `rtde_frequency` | RTDE communication frequency (Hz) | `125` |
+| `rtde_frequency` | RTDE communication frequency (Hz) | `125` |
+
+### Gripper Config Section
+
+For digital grippers, specify pin and polarity:
+
+```yaml
+gripper: digital
+gripper_config:
+  pin: 3
+  close_on_high: true
+```
+
+For Robotiq grippers, override preset values:
+
+```yaml
+gripper: hand-e
+gripper_config:
+  force: 50
+  speed: 80
+```
+
+### CLI Override Precedence
+
+Settings are resolved in this order (highest priority first):
+
+1. **CLI flags** — `urkit teach 172.31.1.200 --gripper none`
+2. **Config file** — values from `config.yaml`
+3. **Built-in defaults** — `points.db` for points, no gripper, `0.5` m/s velocity
+
+Use `--gripper none` to explicitly disable a gripper that's set in your config file.
+
+### Saving Config
+
+The CLI **never** modifies your config file automatically. Inside the teach pendant, press **Y** to save your current session's settings (IP, gripper, points path) to the config file. This way you only save settings you've actually tested and verified work.
+
+```bash
+# First connection — test everything, then press Y inside the pendant
+urkit teach 172.31.1.200 --gripper hand-e
+
+# After pressing Y, config.yaml is saved. Next time:
+urkit teach                          # reads IP + gripper from config
+
+# Custom config file
+urkit teach --config station_a.yaml  # load from custom path
+# press Y inside → saves back to station_a.yaml
+```
+
+This lets you maintain separate configs per workcell:
+
+```bash
+urkit teach --config station_a.yaml  # press Y to save
+urkit teach --config station_b.yaml  # press Y to save
+```
+
+### Programmatic Config
+
+```python
+from urkit import load_config, resolve_config
+
+# Load with auto-resolution
+config = load_config()  # searches for config.yaml
+config = load_config("/path/to/my.yaml")  # explicit path
+
+# Check if config exists
+path = resolve_config()  # returns Path or None
+
+# Create robot from config dict
+robot = URRobot.from_config({"robot_ip": "172.31.1.200", "gripper": "2f-85"})
 ```
 
 ---

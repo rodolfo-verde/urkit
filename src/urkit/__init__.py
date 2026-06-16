@@ -57,7 +57,7 @@ from urkit.gripper.presets import (
 from urkit.motion import FreedriveMode
 from urkit.robot import URRobot
 
-__version__ = "0.0.1"
+__version__ = "0.1.1"
 
 __all__ = [
     # Version

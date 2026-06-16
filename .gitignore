@@ -28,5 +28,6 @@ config.yaml
 # AI assistant configs
 CLAUDE.md
 QWEN.md
+AGENTS.md
 .claude/
 .qwen/
