@@ -13,8 +13,6 @@ authors = [
     {name = "URKit Contributors"},
 ]
 
-[project.urls]
-Repository = "https://github.com/rodolfo-verde/urkit"
 keywords = [
     "universal-robots",
     "ur3e",
@@ -51,6 +49,9 @@ dependencies = [
     "colorama>=0.4.6",
     "rich>=13.0.0",
 ]
+
+[project.urls]
+Repository = "https://github.com/rodolfo-verde/urkit"
 
 [project.scripts]
 urkit = "urkit.__main__:main_entry"

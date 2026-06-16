@@ -24,6 +24,8 @@ Quick start::
 
 from __future__ import annotations
 
+from importlib.metadata import version as _metadata_version
+
 from urkit.config import load_config, resolve_config
 from urkit.exceptions import (
     URKitError,
@@ -57,7 +59,7 @@ from urkit.gripper.presets import (
 from urkit.motion import FreedriveMode
 from urkit.robot import URRobot
 
-__version__ = "0.1.1"
+__version__ = _metadata_version("urkit")
 
 __all__ = [
     # Version
