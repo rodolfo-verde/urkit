@@ -192,21 +192,23 @@ def _draw_screen(
 
     gripper_state = "None"
     if robot.gripper:
-        try:
-            connected = robot.gripper.is_connected()
-        except Exception:
-            connected = False
         pos_mm = robot.gripper.get_position_mm()
         max_mm = robot.gripper.max_travel_mm()
-        if not connected:
-            gripper_state = red("Disconnected")
-        elif pos_mm is not None and max_mm is not None and max_mm > 0:
+        # Skip is_connected() during freedrive — the script ping interrupts
+        # the freedrive state. Use tracked position instead.
+        if not state.get("freedrive"):
+            try:
+                connected = robot.gripper.is_connected()
+            except Exception:
+                connected = False
+            if not connected:
+                gripper_state = red("Disconnected")
+                pos_mm = None
+        if pos_mm is not None and max_mm is not None and max_mm > 0:
             pct = int((max_mm - pos_mm) / max_mm * 100)
             gripper_state = f"{green('Connected')} {pos_mm:.1f}mm ({pct}%)"
-        elif connected:
+        elif gripper_state == "None":
             gripper_state = green("Connected")
-        else:
-            gripper_state = "?"
 
     lines: list[str] = []
 
