@@ -170,7 +170,7 @@ def _validate_connection(ip: str, timeout: float = 5.0) -> dict[str, object]:
 def _connect_rtde(
     ip: str,
     *,
-    frequency: float = 125.0,
+    frequency: float = 500.0,
     max_wait: float = 30.0,
 ) -> Tuple[
     "RTDEControlInterface",
@@ -193,7 +193,7 @@ def _connect_rtde(
 
     Args:
         ip: Robot IP address.
-        frequency: RTDE communication frequency (default 125 Hz).
+        frequency: RTDE communication frequency (default 500 Hz).
         max_wait: Maximum time (seconds) to spend retrying the RTDE
             connection (default 30s).
 
@@ -296,7 +296,16 @@ def _connect_rtde(
                     f"EtherNet/IP, PROFINET, and MODBUS. Save and restart."
                 ) from e
 
-            # Retryable RuntimeError (e.g., "Failed to start control script")
+            if "start control script" in err_msg.lower():
+                raise ConnectionError(
+                    f"Failed to start the RTDE control script on the robot at {ip}. "
+                    f"The robot is missing the ExternalControl URCap program. "
+                    f"Download external_control.urp from the ur_rtde repository "
+                    f"(https://github.com/roboticsur/ur_rtde) and install it on the robot. "
+                    f"Then press Play on the teach pendant to start the program."
+                ) from e
+
+            # Retryable RuntimeError (e.g., transient connection issues)
             remaining = max_wait - (time.time() - start)
             if remaining <= 0:
                 raise ConnectionError(
