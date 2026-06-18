@@ -130,9 +130,6 @@ class TestRobotiqGripper:
         second_count = self.rtde.sendCustomScriptFunction.call_count
         assert second_count - first_count == 1
 
-    def test_is_connected(self):
-        assert self.gripper.is_connected() is True
-
     def test_disconnect_resets_activation(self):
         """disconnect() resets activation flag; must call activate() again."""
         self.gripper.activate()

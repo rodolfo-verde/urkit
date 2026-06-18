@@ -128,13 +128,3 @@ class DigitalGripper(Gripper):
         raise GripperError(
             "Digital grippers do not support set_speed."
         )
-
-    def is_connected(self) -> bool:
-        """Check if the gripper is connected.
-
-        Raises:
-            GripperError: Always — digital grippers can't verify connection.
-        """
-        raise GripperError(
-            "Digital grippers do not support connection checks."
-        )

@@ -305,15 +305,6 @@ class RobotiqGripper(Gripper):
         self._speed = speed
         logger.debug("Robotiq gripper speed set to %d", speed)
 
-    def is_connected(self) -> bool:
-        """Check if the gripper can send commands via RTDE."""
-        try:
-            return self._rtde.sendCustomScriptFunction(
-                "_grip_ping", 'textmsg("gripper", "ok")'
-            )
-        except Exception:
-            return False
-
     def disconnect(self) -> None:
         """Disconnect the gripper.
 

@@ -13,11 +13,10 @@ from abc import ABC, abstractmethod
 class Gripper(ABC):
     """Abstract base class for gripper backends.
 
-    Subclasses must implement ``open()``, ``close()``, ``set_position()``,
-    and ``is_connected()``. The ``activate()`` method is a no-op by
-    default and should be overridden by backends that require explicit
-    activation (e.g., Robotiq). The factory method ``Gripper.create()``
-    returns the appropriate backend.
+    Subclasses must implement ``open()``, ``close()``, and ``set_position()``.
+    The ``activate()`` method is a no-op by default and should be overridden
+    by backends that require explicit activation (e.g., Robotiq). The factory
+    method ``Gripper.create()`` returns the appropriate backend.
     """
 
     @abstractmethod
@@ -89,14 +88,6 @@ class Gripper(ABC):
             Max travel in mm, or None.
         """
         return None
-
-    @abstractmethod
-    def is_connected(self) -> bool:
-        """Check if the gripper is connected and ready.
-
-        Returns:
-            True if the gripper is connected.
-        """
 
     @classmethod
     def create(cls, name: str, **kwargs) -> "Gripper":

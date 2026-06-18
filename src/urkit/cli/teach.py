@@ -197,10 +197,8 @@ def _draw_screen(
         if pos_mm is not None and max_mm is not None and max_mm > 0:
             pct = int((max_mm - pos_mm) / max_mm * 100)
             gripper_state = f"{green('Connected')} {pos_mm:.1f}mm ({pct}%)"
-        elif robot.gripper.is_activated():
-            gripper_state = green("Connected")
         else:
-            gripper_state = red("Disconnected")
+            gripper_state = green("Connected")
 
     lines: list[str] = []
 

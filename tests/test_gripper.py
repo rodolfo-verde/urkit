@@ -189,11 +189,6 @@ class TestDigitalActivation:
         gripper.close()
         mock_rtde.setStandardDigitalOut.assert_called_with(1, False)
 
-    def test_is_connected_raises(self, mock_rtde, mock_rtde_r):
-        gripper = DigitalGripper(mock_rtde, mock_rtde_r, pin=0)
-        with pytest.raises(GripperError, match="do not support connection"):
-            gripper.is_connected()
-
     def test_set_position_raises(self, mock_rtde, mock_rtde_r):
         gripper = DigitalGripper(mock_rtde, mock_rtde_r, pin=0)
         with pytest.raises(GripperError, match="do not support set_position"):
