@@ -915,7 +915,6 @@ def _teach_pendant(
                             state["freedrive"] = True
                             state["freedrive_mode"] = mode
                             state["_last_freedrive_mode"] = mode
-                            messages.append(f"Freedrive {mode.name}")
                         except MotionError as e:
                             messages.append(f"Freedrive error: {e}")
                     else:
@@ -925,14 +924,12 @@ def _teach_pendant(
                                 robot.enable_freedrive(FreedriveMode.XYZ)
                                 state["freedrive_mode"] = FreedriveMode.XYZ
                                 state["_last_freedrive_mode"] = FreedriveMode.XYZ
-                                messages.append("Freedrive XYZ")
                             except MotionError as e:
                                 messages.append(f"Freedrive error: {e}")
                         else:
                             try:
                                 robot.disable_freedrive()
                                 state["freedrive"] = False
-                                messages.append("Freedrive OFF")
                             except MotionError as e:
                                 messages.append(f"Freedrive error: {e}")
                     command_handled = True
