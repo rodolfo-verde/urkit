@@ -161,7 +161,7 @@ class RobotiqGripper(Gripper):
         """
         if self._activated:
             return
-        # Check activation state and activate+open if needed, all in one script.
+        # Check activation state and activate if needed.
         # rq_activate_and_wait() sends ACT then polls until the gripper
         # reports activated (~3-5s for internal initialization).
         activation_script = (
@@ -171,7 +171,6 @@ class RobotiqGripper(Gripper):
             + "if (not rq_is_gripper_activated()):\n"
             + "    rq_activate_and_wait()\n"
             + "end\n"
-            + "rq_open_and_wait()\n"
         )
         # Run in a thread with a timeout — the preamble blocks indefinitely
         # if no gripper is physically connected (2000-iteration loop).
@@ -196,7 +195,6 @@ class RobotiqGripper(Gripper):
             raise GripperError(f"Gripper activation failed: {_err}") from _err
 
         self._activated = True
-        self._last_position_mm = float(self._max_mm)
         logger.info("Robotiq gripper activated (checked robot state)")
 
     def is_activated(self) -> bool:

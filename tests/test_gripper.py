@@ -121,9 +121,9 @@ class TestRobotiqActivation:
         assert self.gripper.get_position_mm() is None
 
     def test_get_position_mm_after_activate(self):
-        """get_position_mm() returns max_mm after activation (gripper opens)."""
+        """get_position_mm() returns None after activation (gripper doesn't open)."""
         self.gripper.activate()
-        assert self.gripper.get_position_mm() == 50.0  # default max_mm
+        assert self.gripper.get_position_mm() is None
 
     def test_get_position_mm_after_open(self):
         """get_position_mm() returns max_mm after open()."""

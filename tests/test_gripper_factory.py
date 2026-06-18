@@ -78,13 +78,12 @@ class TestRobotiqGripper:
         self.gripper.activate()
         self.gripper.open()
         calls = self.rtde.sendCustomScriptFunction.call_args_list
-        # activate (combined check+activate+open) + open = 2 calls
+        # activate (check+activate only) + open = 2 calls
         assert len(calls) == 2
         # Check the activate call contains activation logic
         activate_code = calls[0][0][1]
         assert "rq_is_gripper_activated()" in activate_code
         assert "rq_activate_and_wait()" in activate_code
-        assert "rq_open_and_wait()" in activate_code
         # Check the open-after-activate call contains rq_open_and_wait
         open_code = calls[1][0][1]
         assert "rq_open_and_wait()" in open_code
