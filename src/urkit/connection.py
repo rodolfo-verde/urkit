@@ -299,10 +299,9 @@ def _connect_rtde(
             if "start control script" in err_msg.lower():
                 raise ConnectionError(
                     f"Failed to start the RTDE control script on the robot at {ip}. "
-                    f"The robot is missing the ExternalControl URCap program. "
-                    f"Download external_control.urp from the ur_rtde repository "
-                    f"(https://github.com/roboticsur/ur_rtde) and install it on the robot. "
-                    f"Then press Play on the teach pendant to start the program."
+                    f"This usually means a program is already occupying the secondary interface. "
+                    f"Stop any running program on the robot and try again. "
+                    f"If using PolyScopeX (5.x), the ExternalControl URCap may be required."
                 ) from e
 
             # Retryable RuntimeError (e.g., transient connection issues)
