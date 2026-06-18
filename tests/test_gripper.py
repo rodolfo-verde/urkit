@@ -159,6 +159,56 @@ class TestRobotiqActivation:
         gripper = RobotiqGripper(rtde_control=self.rtde, max_mm=140)
         assert gripper.max_travel_mm() == 140.0
 
+    def test_read_hardware_no_rtde_receive(self):
+        """_read_position_from_hardware returns None without rtde_receive."""
+        assert self.gripper._read_position_from_hardware() is None
+
+    def test_read_hardware_not_activated(self, mock_rtde_r):
+        """_read_position_from_hardware returns None when not activated."""
+        self.gripper._rtde_r = mock_rtde_r
+        assert self.gripper._read_position_from_hardware() is None
+
+    def test_read_hardware_roundtrip(self, mock_rtde_r):
+        """Hardware read encodes/decodes position via DO bits correctly."""
+        self.gripper.activate()
+        self.gripper._rtde_r = mock_rtde_r
+        # Simulate raw=128 (half closed) → DO bits for 10000000 → bit 7 set
+        # DO 8-15: bit 7 of raw maps to DO 15 (8+7)
+        raw = 128
+        do_bits = 0
+        for i in range(8):
+            if raw & (1 << i):
+                do_bits |= 1 << (8 + i)
+        mock_rtde_r.getActualDigitalOutputBits.return_value = do_bits
+        mm = self.gripper._read_position_from_hardware()
+        # raw=128 → mm = 50 * (1 - 128/255) = 24.9
+        assert mm is not None
+        assert abs(mm - 24.9) < 0.1
+
+    def test_read_hardware_fully_open(self, mock_rtde_r):
+        """raw=0 means fully open → max_mm."""
+        self.gripper.activate()
+        self.gripper._rtde_r = mock_rtde_r
+        mock_rtde_r.getActualDigitalOutputBits.return_value = 0
+        mm = self.gripper._read_position_from_hardware()
+        assert mm == 50.0
+
+    def test_read_hardware_fully_closed(self, mock_rtde_r):
+        """raw=255 means fully closed → 0mm."""
+        self.gripper.activate()
+        self.gripper._rtde_r = mock_rtde_r
+        # raw=255 → all DO 8-15 set → 0xFF00
+        mock_rtde_r.getActualDigitalOutputBits.return_value = 0xFF00
+        mm = self.gripper._read_position_from_hardware()
+        assert mm == 0.0
+
+    def test_get_position_mm_fallback(self):
+        """get_position_mm falls back to tracked position when hw unavailable."""
+        self.gripper.activate()
+        self.gripper.set_position(30)
+        # No rtde_receive → hardware read returns None → falls back to tracked
+        assert self.gripper.get_position_mm() == 30.0
+
 
 # ------------------------------------------------------------------
 # DigitalGripper activation tests

@@ -18,6 +18,7 @@ gripper operations synchronous by default.
 from __future__ import annotations
 
 import logging
+import time
 import threading
 from typing import TYPE_CHECKING
 
@@ -27,6 +28,7 @@ from urkit.gripper.robotiq_preamble import ROBOTIQ_PREAMBLE
 
 if TYPE_CHECKING:
     from rtde_control import RTDEControlInterface
+    from rtde_receive import RTDEReceiveInterface
 
 logger = logging.getLogger(__name__)
 
@@ -57,7 +59,8 @@ class RobotiqGripper(Gripper):
         max_mm: int = 50,
         force: int = 100,
         speed: int = 100,
-        **kwargs,  # rtde_receive, robot_ip passed by factory but not used
+        rtde_receive: "RTDEReceiveInterface | None" = None,
+        **kwargs,  # robot_ip passed by factory but not used
     ) -> None:
         if rtde_control is None:
             raise GripperError(
@@ -73,6 +76,7 @@ class RobotiqGripper(Gripper):
             )
 
         self._rtde = rtde_control
+        self._rtde_r = rtde_receive
         self._max_mm = max_mm
         self._force = force
         self._speed = speed
@@ -317,6 +321,57 @@ class RobotiqGripper(Gripper):
         except Exception:
             return False
 
+    def _read_position_from_hardware(self) -> float | None:
+        """Read the actual gripper position from hardware via DO round-trip.
+
+        Sends a URScript that reads rq_current_pos() and writes the raw
+        0–255 value to digital outputs 8–15. Python then reads those DO
+        bits back via rtde_receive and converts to mm.
+
+        Side effect: temporarily modifies DO 8–15.
+
+        Returns:
+            Position in mm, or None if rtde_receive is unavailable or
+            the read fails.
+        """
+        if not self._activated or self._rtde_r is None:
+            return None
+
+        # Build URScript: read raw position (0-255), write to DO 8-15
+        # Each bit of the raw value maps to one DO pin.
+        read_script = (
+            ROBOTIQ_PREAMBLE
+            + f"set_closed_mm(0.0, 1)\n"
+            + f"set_open_mm({self._max_mm}.0, 1)\n"
+            + "raw_pos = rq_current_pos()\n"
+            + "sync()\n"
+        )
+        for i in range(8):
+            bit = f"floor((raw_pos / ({2 ** i})) % 2)"
+            read_script += f"set_standard_digital_out({8 + i}, {bit})\n"
+            read_script += "sync()\n"
+
+        try:
+            self._send_script(read_script)
+        except GripperError:
+            return None
+
+        # Brief delay for RTDE to update DO data (500Hz = 2ms cycle)
+        time.sleep(0.005)
+
+        try:
+            do_bits = self._rtde_r.getActualDigitalOutputBits()
+            raw = 0
+            for i in range(8):
+                if do_bits & (1 << (8 + i)):
+                    raw |= (1 << i)
+
+            # Raw 0=open (max_mm), 255=closed (0mm)
+            mm = self._max_mm * (1 - raw / 255)
+            return round(mm, 1)
+        except Exception:
+            return None
+
     def disconnect(self) -> None:
         """Disconnect the gripper.
 
@@ -328,12 +383,19 @@ class RobotiqGripper(Gripper):
         logger.debug("Robotiq gripper disconnected")
 
     def get_position_mm(self) -> float | None:
-        """Return the last commanded position in mm.
+        """Return the gripper position in mm.
+
+        Reads the actual position from the gripper hardware via a
+        URScript that queries the POS register. Falls back to the
+        last commanded position if the hardware read is unavailable.
 
         Returns:
             Position in mm (0 = closed, max_mm = open), or None if
-            no position has been set yet.
+            no position information is available.
         """
+        hw = self._read_position_from_hardware()
+        if hw is not None:
+            return hw
         return self._last_position_mm
 
     def max_travel_mm(self) -> float:
