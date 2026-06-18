@@ -57,7 +57,7 @@ class FreedriveMode(IntEnum):
     """
 
     ALL = 0  # All 6 axes free
-    XYZ = 1  # Only linear axes (X, Y, Z)
+    XYZ = 1  # Linear axes (X, Y, Z) + rotation around Z (Rz)
     ROTATION = 2  # Only rotational axes (Roll, Pitch, Yaw)
 
 
@@ -475,7 +475,7 @@ class Motion:
             if mode == FreedriveMode.ALL:
                 free_axes = [1, 1, 1, 1, 1, 1]
             elif mode == FreedriveMode.XYZ:
-                free_axes = [1, 1, 1, 0, 0, 0]
+                free_axes = [1, 1, 1, 0, 0, 1]
             elif mode == FreedriveMode.ROTATION:
                 free_axes = [0, 0, 0, 1, 1, 1]
             else:
