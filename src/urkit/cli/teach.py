@@ -218,7 +218,10 @@ def _draw_screen(
     lines.append(f" {blue('Go To:'.ljust(lw))} {green(goto_label)} {dim('[N: toggle Cartesian/Joint]')}")
     lines.append(f" {blue('Gripper:'.ljust(lw))} {gripper_state}")
     if state["freedrive"]:
-        lines.append(f" {blue('Freedrive:'.ljust(lw))} {green('ON')} ({state['freedrive_mode'].name})")
+        mode_label = state["freedrive_mode"].name
+        if mode_label == "XYZ":
+            mode_label = "XYZ+Rz"
+        lines.append(f" {blue('Freedrive:'.ljust(lw))} {green('ON')} ({mode_label})")
     else:
         lines.append(f" {blue('Freedrive:'.ljust(lw))} {red('OFF')} {dim('[F: cycle ALL/XYZ+Rz]')}")
     slider_pct = int(state["speed_slider"] * 100)
