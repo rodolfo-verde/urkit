@@ -76,7 +76,6 @@ class URRobot:
             Presets provide mass, CoG, TCP offset, and backend type.
         default_vel: Default linear velocity (m/s).
         default_acc: Default linear acceleration (m/s²).
-        rtde_frequency: RTDE communication frequency in Hz (default 500).
         gripper_kwargs: Additional kwargs passed to the gripper backend
             to override preset values (e.g. ``max_mm=80`` for custom
             fingers, ``force=50``, ``speed=80`` for Robotiq).
@@ -97,13 +96,12 @@ class URRobot:
         gripper: GripperPreset | DigitalGripperConfig | None = None,
         default_vel: float = 0.5,
         default_acc: float = 0.3,
-        rtde_frequency: float = 500.0,
         **gripper_kwargs,
     ) -> None:
         self._ip = ip
         self._default_vel = default_vel
         self._default_acc = default_acc
-        self._rtde_frequency = rtde_frequency
+        self._rtde_frequency = 500.0
         self._connection_lost = False
         self._move_frame: MoveFrame = MoveFrame.BASE
 
@@ -298,7 +296,6 @@ class URRobot:
         gripper: GripperPreset | DigitalGripperConfig | str | None = None,
         default_vel: float | None = None,
         default_acc: float | None = None,
-        rtde_frequency: float | None = None,
         **gripper_kwargs,
     ) -> "URRobot":
         """Create a URRobot from a YAML config file or dict.
@@ -315,7 +312,6 @@ class URRobot:
                 or ``None``. Overrides the ``gripper`` key from config.
             default_vel: Default linear velocity (m/s).
             default_acc: Default linear acceleration (m/s²).
-            rtde_frequency: RTDE communication frequency in Hz.
             gripper_kwargs: Overrides for gripper preset values
                 (e.g. ``max_mm``, ``force``, ``speed``, ``pin``).
 
@@ -394,7 +390,6 @@ class URRobot:
             gripper=resolved_gripper,
             default_vel=default_vel if default_vel is not None else cfg.get("default_vel", 0.5),
             default_acc=default_acc if default_acc is not None else cfg.get("default_acc", 0.3),
-            rtde_frequency=rtde_frequency if rtde_frequency is not None else cfg.get("rtde_frequency", 500.0),
             **gripper_kwargs,
         )
 
