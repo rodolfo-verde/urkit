@@ -71,6 +71,25 @@ class Gripper(ABC):
         to re-enable the gripper.
         """
 
+    def get_position_mm(self) -> float | None:
+        """Return the last commanded position in mm, or None if unknown.
+
+        Returns the most recently set position. Subclasses that support
+        reading the actual hardware position should override this method.
+
+        Returns:
+            Position in mm, or None if not available.
+        """
+        return None
+
+    def max_travel_mm(self) -> float | None:
+        """Return the maximum finger travel in mm, or None if unknown.
+
+        Returns:
+            Max travel in mm, or None.
+        """
+        return None
+
     @abstractmethod
     def is_connected(self) -> bool:
         """Check if the gripper is connected and ready.

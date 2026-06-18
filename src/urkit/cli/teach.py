@@ -191,13 +191,25 @@ def _draw_screen(
         tcp_force = [0, 0, 0, 0, 0, 0]
 
     gripper_state = "None"
-    if robot.gripper and not state.get("freedrive"):
-        try:
-            gripper_state = "Connected" if robot.gripper.is_connected() else "Disconnected"
-        except Exception:
-            gripper_state = "?"
-    elif robot.gripper and state.get("freedrive"):
-        gripper_state = dim("(freedrive active)")
+    if robot.gripper:
+        if state.get("freedrive"):
+            gripper_state = dim("(freedrive active)")
+        else:
+            try:
+                connected = robot.gripper.is_connected()
+            except Exception:
+                connected = False
+            pos_mm = robot.gripper.get_position_mm()
+            max_mm = robot.gripper.max_travel_mm()
+            if not connected:
+                gripper_state = red("Disconnected")
+            elif pos_mm is not None and max_mm is not None and max_mm > 0:
+                pct = int(pos_mm / max_mm * 100)
+                gripper_state = f"{green('Connected')} {pos_mm:.1f}mm ({pct}%)"
+            elif connected:
+                gripper_state = green("Connected")
+            else:
+                gripper_state = "?"
 
     lines: list[str] = []
 
@@ -259,8 +271,9 @@ def _draw_screen(
     lines.append(dim("=" * width))
 
     # Clear and redraw
-    print("\033[2J\033[1;1H", end="")
-    print("\n".join(lines))
+    sys.stdout.write("\033[2J\033[1;1H")
+    sys.stdout.write("\n".join(lines) + "\n")
+    sys.stdout.flush()
 
 
 def _draw_help() -> None:

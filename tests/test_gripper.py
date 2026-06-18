@@ -116,6 +116,49 @@ class TestRobotiqActivation:
         with pytest.raises(GripperError, match="not activated"):
             self.gripper.open()
 
+    def test_get_position_mm_initially_none(self):
+        """get_position_mm() returns None before any operation."""
+        assert self.gripper.get_position_mm() is None
+
+    def test_get_position_mm_after_activate(self):
+        """get_position_mm() returns max_mm after activation (gripper opens)."""
+        self.gripper.activate()
+        assert self.gripper.get_position_mm() == 50.0  # default max_mm
+
+    def test_get_position_mm_after_open(self):
+        """get_position_mm() returns max_mm after open()."""
+        self.gripper.activate()
+        self.gripper.open()
+        assert self.gripper.get_position_mm() == 50.0
+
+    def test_get_position_mm_after_close(self):
+        """get_position_mm() returns 0 after close()."""
+        self.gripper.activate()
+        self.gripper.close()
+        assert self.gripper.get_position_mm() == 0.0
+
+    def test_get_position_mm_after_set_position(self):
+        """get_position_mm() returns the commanded position."""
+        self.gripper.activate()
+        self.gripper.set_position(25)
+        assert self.gripper.get_position_mm() == 25.0
+
+    def test_get_position_mm_after_disconnect(self):
+        """get_position_mm() returns None after disconnect."""
+        self.gripper.activate()
+        self.gripper.set_position(30)
+        self.gripper.disconnect()
+        assert self.gripper.get_position_mm() is None
+
+    def test_max_travel_mm(self):
+        """max_travel_mm() returns the configured max_mm."""
+        assert self.gripper.max_travel_mm() == 50.0
+
+    def test_max_travel_mm_custom(self):
+        """max_travel_mm() returns the custom max_mm value."""
+        gripper = RobotiqGripper(rtde_control=self.rtde, max_mm=140)
+        assert gripper.max_travel_mm() == 140.0
+
 
 # ------------------------------------------------------------------
 # DigitalGripper activation tests

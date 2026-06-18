@@ -77,6 +77,7 @@ class RobotiqGripper(Gripper):
         self._force = force
         self._speed = speed
         self._activated = False
+        self._last_position_mm: float | None = None
 
         logger.info(
             "RobotiqGripper initialized (preamble, max_mm=%d)", max_mm
@@ -195,6 +196,7 @@ class RobotiqGripper(Gripper):
             raise GripperError(f"Gripper activation failed: {_err}") from _err
 
         self._activated = True
+        self._last_position_mm = float(self._max_mm)
         logger.info("Robotiq gripper activated (checked robot state)")
 
     def is_activated(self) -> bool:
@@ -234,6 +236,7 @@ class RobotiqGripper(Gripper):
         self._require_activated()
         func = "rq_open_and_wait()" if wait else "rq_open()"
         self._send_script(self._build_script(func))
+        self._last_position_mm = float(self._max_mm)
         logger.debug("Robotiq gripper opened (wait=%s)", wait)
 
     def close(self, *, wait: bool = True) -> None:
@@ -250,6 +253,7 @@ class RobotiqGripper(Gripper):
         self._require_activated()
         func = "rq_close_and_wait()" if wait else "rq_close()"
         self._send_script(self._build_script(func))
+        self._last_position_mm = 0.0
         logger.debug("Robotiq gripper closed (wait=%s)", wait)
 
     def set_position(self, mm: float, *, wait: bool = True) -> None:
@@ -275,6 +279,7 @@ class RobotiqGripper(Gripper):
         else:
             func = f"rq_move_mm({mm})"
         self._send_script(self._build_script(func))
+        self._last_position_mm = mm
         logger.debug("Robotiq gripper set to %.1f mm (wait=%s)", mm, wait)
 
     def set_force(self, force: int) -> None:
@@ -319,4 +324,18 @@ class RobotiqGripper(Gripper):
         using the gripper.
         """
         self._activated = False
+        self._last_position_mm = None
         logger.debug("Robotiq gripper disconnected")
+
+    def get_position_mm(self) -> float | None:
+        """Return the last commanded position in mm.
+
+        Returns:
+            Position in mm (0 = closed, max_mm = open), or None if
+            no position has been set yet.
+        """
+        return self._last_position_mm
+
+    def max_travel_mm(self) -> float:
+        """Return the maximum finger travel in mm."""
+        return float(self._max_mm)
