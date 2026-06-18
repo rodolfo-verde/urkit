@@ -300,8 +300,7 @@ def _connect_rtde(
                 raise ConnectionError(
                     f"Failed to start the RTDE control script on the robot at {ip}. "
                     f"This usually means a program is already occupying the secondary interface. "
-                    f"Stop any running program on the robot and try again. "
-                    f"If using PolyScopeX (5.x), the ExternalControl URCap may be required."
+                    f"Stop any running program on the robot and try again."
                 ) from e
 
             # Retryable RuntimeError (e.g., transient connection issues)
