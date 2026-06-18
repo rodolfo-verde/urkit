@@ -784,6 +784,49 @@ class URRobot:
     # Motion
     # ------------------------------------------------------------------
 
+    def get_pose(
+        self,
+        target: str | list[float],
+        *,
+        offset: list[float] | None = None,
+        frame: MoveFrame | None = None,
+    ) -> list[float]:
+        """Resolve a saved point or raw pose to a TCP pose.
+
+        Like ``move_to`` but returns the pose instead of moving.
+        Useful for logging, comparisons, or custom motion logic.
+
+        Args:
+            target: A saved point name (str) or a raw TCP pose
+                [x, y, z, rx, ry, rz].
+            offset: Optional offset [dx, dy, dz, droll, dpitch, dyaw]
+                applied to the target pose.
+            frame: Coordinate frame for the offset. Falls back to the
+                current ``move_frame`` property (BASE or TOOL).
+
+        Returns:
+            TCP pose as [x, y, z, rx, ry, rz].
+
+        Raises:
+            PointError: If the named point is not found or offset is invalid.
+
+        Example:
+            >>> pose = robot.get_pose("pick")
+            >>> pose = robot.get_pose("pick", offset=[0, 0, 0.05, 0, 0, 0])
+            >>> robot.move_to(pose)
+        """
+        point = self._lookup_point(target)
+
+        if offset is not None:
+            if len(offset) != 6:
+                raise PointError(
+                    f"Offset must have 6 values [dx, dy, dz, droll, dpitch, dyaw], "
+                    f"got {len(offset)}."
+                )
+            point = point.with_offset(offset, frame=frame or self._move_frame)
+
+        return list(point.pose)
+
     def move_to(
         self,
         target: str | list[float],

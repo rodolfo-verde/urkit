@@ -45,16 +45,14 @@ Requires Python 3.8+ and a Universal Robots e-Series (UR3e to UR30).
 
 That's it. No `.urp` files to run, no extra programs needed.
 
-### Robotiq Grippers (optional)
+### Example
 
-Install the **Robotiq Gripper Control** URCap: download from [robotiq.com/support](https://robotiq.com/support), copy the `.urcap` to a USB drive, mount on the robot, and install via `☰` → `Settings` → `System` → `URCaps`.
-
-### Hello World
+If you have a Robotiq gripper, install the **Robotiq Gripper Control** URCap first: download from [robotiq.com/support](https://robotiq.com/support), copy the `.urcap` to a USB drive, and install via `☰` → `Settings` → `System` → `URCaps`.
 
 ```python
-from urkit import URRobot, ROBOTIQ_HAND_E
+from urkit import URRobot, ROBOTIQ_2F_85  # or ROBOTIQ_2F_140, ROBOTIQ_HAND_E, or gripper=none
 
-robot = URRobot(ip="172.31.1.200", points="points.db", gripper=ROBOTIQ_HAND_E)
+robot = URRobot(ip="172.31.1.200", points="points.db", gripper=ROBOTIQ_2F_85)
 robot.gripper.activate()
 
 robot.move_to("home")
@@ -298,6 +296,16 @@ robot.move_to([0.5, 0, 0.3, 0, 0, 0])     # [x, y, z, rx, ry, rz]
 robot.move_to("pick", offset=[0, 0, 0.05, 0, 0, 0])  # 5cm above pick
 ```
 
+#### Resolve a Pose
+
+Get a pose without moving — useful for logging, comparisons, or custom motion:
+
+```python
+pose = robot.get_pose("pick")
+pose = robot.get_pose("pick", offset=[0, 0, 0.05, 0, 0, 0])  # with offset
+robot.move_to(pose)  # move to the resolved pose later
+```
+
 #### Coordinate Frame
 
 ```python
@@ -491,13 +499,14 @@ robot.rtde_receive.getActualCurrent()
 
 Full `ur_rtde` documentation: <https://sdurobotics.gitlab.io/ur_rtde/>
 
-### Connection Lifecycle
+### Connection Monitoring
 
 ```python
 robot.connection_lost       # bool: check if RTDE dropped
 robot.reconnect_rtde()      # reconnect after a drop
-robot.disconnect()          # clean shutdown
 ```
+
+`disconnect()` is called automatically when the robot object is garbage collected.
 
 ### Error Handling
 
