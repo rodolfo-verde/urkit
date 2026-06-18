@@ -190,7 +190,7 @@ All movement and orientation keys support **hold-to-repeat** — hold a key down
     <td align="center" style="width:50%">
       <table>
         <tr><th>Key</th><th>Action</th></tr>
-        <tr><td><code>F</code></td><td>Freedrive (OFF → ALL → XYZ)</td></tr>
+        <tr><td><code>F</code></td><td>Freedrive (OFF → ALL → XYZ+Rz)</td></tr>
         <tr><td><code>M</code></td><td>Toggle frame (BASE / TOOL)</td></tr>
         <tr><td><code>N</code></td><td>Go To mode (Cartesian / Joint)</td></tr>
         <tr><td><code>T</code></td><td>Orient TCP down (180°)</td></tr>
@@ -547,7 +547,7 @@ from urkit import FreedriveMode
 
 # Freedrive lets you manually push the robot: motion commands won't work while active
 robot.enable_freedrive()              # all 6 axes free
-robot.enable_freedrive(FreedriveMode.XYZ)      # linear axes only
+robot.enable_freedrive(FreedriveMode.XYZ)      # linear axes + Rz rotation
 robot.enable_freedrive(FreedriveMode.ROTATION) # rotation only
 robot.disable_freedrive()             # always disable before sending motion commands
 

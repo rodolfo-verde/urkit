@@ -220,7 +220,7 @@ def _draw_screen(
     if state["freedrive"]:
         lines.append(f" {blue('Freedrive:'.ljust(lw))} {green('ON')} ({state['freedrive_mode'].name})")
     else:
-        lines.append(f" {blue('Freedrive:'.ljust(lw))} {red('OFF')} {dim('[F: cycle ALL/XYZ]')}")
+        lines.append(f" {blue('Freedrive:'.ljust(lw))} {red('OFF')} {dim('[F: cycle ALL/XYZ+Rz]')}")
     slider_pct = int(state["speed_slider"] * 100)
     slider_color = green if state["speed_slider"] >= 0.5 else yellow if state["speed_slider"] >= 0.2 else red
     lines.append(f" {blue('Speed:'.ljust(lw))} {slider_color(f'{slider_pct}%')} {dim('[0: set]')}")
@@ -299,7 +299,7 @@ def _draw_help() -> None:
     lines.append("    P      → Open points explorer")
     lines.append("")
     lines.append("  OTHER:")
-    lines.append("    F      → Cycle freedrive: OFF → ALL → XYZ → OFF")
+    lines.append("    F      → Cycle freedrive: OFF → ALL → XYZ+Rz → OFF")
     lines.append("    M      → Toggle move frame: BASE / TOOL")
     lines.append("    T      → Orient TCP downward (roll=180°)")
     lines.append("    0      → Set speed slider (0-100%)")
