@@ -192,24 +192,21 @@ def _draw_screen(
 
     gripper_state = "None"
     if robot.gripper:
-        if state.get("freedrive"):
-            gripper_state = dim("(freedrive active)")
+        try:
+            connected = robot.gripper.is_connected()
+        except Exception:
+            connected = False
+        pos_mm = robot.gripper.get_position_mm()
+        max_mm = robot.gripper.max_travel_mm()
+        if not connected:
+            gripper_state = red("Disconnected")
+        elif pos_mm is not None and max_mm is not None and max_mm > 0:
+            pct = int((max_mm - pos_mm) / max_mm * 100)
+            gripper_state = f"{green('Connected')} {pos_mm:.1f}mm ({pct}%)"
+        elif connected:
+            gripper_state = green("Connected")
         else:
-            try:
-                connected = robot.gripper.is_connected()
-            except Exception:
-                connected = False
-            pos_mm = robot.gripper.get_position_mm()
-            max_mm = robot.gripper.max_travel_mm()
-            if not connected:
-                gripper_state = red("Disconnected")
-            elif pos_mm is not None and max_mm is not None and max_mm > 0:
-                pct = int((max_mm - pos_mm) / max_mm * 100)
-                gripper_state = f"{green('Connected')} {pos_mm:.1f}mm ({pct}%)"
-            elif connected:
-                gripper_state = green("Connected")
-            else:
-                gripper_state = "?"
+            gripper_state = "?"
 
     lines: list[str] = []
 
