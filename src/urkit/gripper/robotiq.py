@@ -206,10 +206,9 @@ class RobotiqGripper(Gripper):
     def deactivate(self) -> None:
         """Deactivate the gripper (send DEACT command).
 
+        Sends the Robotiq DEACT command to power down the gripper.
         Safe to call when not activated — becomes a no-op.
-        Use this before enabling freedrive to prevent the
-        gripper's script from interfering with manual movement.
-        Call activate() again after freedrive is disabled.
+        Call activate() again to re-enable the gripper.
         """
         if not self._activated:
             return
