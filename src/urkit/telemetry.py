@@ -146,6 +146,26 @@ class Telemetry:
                 f"Failed to read payload: {e}"
             )
 
+    def get_speed_slider(self) -> float:
+        """Get the current speed slider setting.
+
+        Returns the configured speed slider value (the hardware
+        multiplier), not the actual speed scaling. This is the value
+        set by setSpeedSlider() or the physical pendant slider.
+
+        Returns:
+            Speed slider as a float between 0.0 and 1.0.
+
+        Raises:
+            TelemetryError: If speed slider cannot be read.
+        """
+        try:
+            return float(self._rtde_r.getTargetSpeedFraction())
+        except Exception as e:
+            raise TelemetryError(
+                f"Failed to read speed slider: {e}"
+            )
+
     def get_robot_mode(self) -> str:
         """Get the current robot mode.
 

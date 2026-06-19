@@ -82,6 +82,12 @@ def main() -> None:
         help="Path to config file (default: config.yaml in project root or CWD)",
     )
     teach_parser.add_argument(
+        "-e", "--expert",
+        action="store_true",
+        default=False,
+        help="Disable safety speed clamping (full speed for goto/tcp-down)",
+    )
+    teach_parser.add_argument(
         "-v", "--verbose",
         action="store_true",
         default=False,

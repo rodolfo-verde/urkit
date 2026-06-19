@@ -1110,6 +1110,10 @@ class URRobot:
         """Set the speed slider factor (0.0–1.0)."""
         self._motion.set_speed_slider(factor)
 
+    def get_speed_slider(self) -> float:
+        """Get the current speed slider setting (0.0–1.0)."""
+        return self._telemetry.get_speed_slider()
+
     # ------------------------------------------------------------------
     # Kinematics
     # ------------------------------------------------------------------

@@ -36,7 +36,7 @@ from urkit.connection import (
     _ping,
 )
 from urkit.exceptions import GripperError, MotionError, PointError, URKitConnectionError as ConnectionError
-from urkit.geometry import MoveFrame, orient_tcp_down
+from urkit.geometry import MoveFrame, orient_tcp_down, transform_pose_delta
 from urkit.gripper.presets import DigitalGripperConfig, GripperPreset, PRESETS
 from urkit.motion import FreedriveMode
 from urkit.robot import URRobot
@@ -550,7 +550,7 @@ def _filter_select_points(
 
 
 def _submenu_goto_point(
-    robot: URRobot, state: dict, messages: list[str]
+    robot: URRobot, state: dict, messages: list[str], expert_mode: bool = False
 ) -> None:
     """Go to a saved point using the current Go To mode."""
     try:
@@ -568,8 +568,19 @@ def _submenu_goto_point(
             robot.disable_freedrive()
             state["freedrive"] = False
 
+        # Pre-check: verify the pose is reachable before moving
+        try:
+            pose = robot.get_pose(name)
+            robot.inverse_kinematics(pose)
+        except MotionError:
+            messages.append(f"Unreachable: '{name}' — no IK solution")
+            return
+
         is_cartesian = state["goto_mode"] == "cartesian"
-        robot.move_to(name, linear=is_cartesian)
+        if expert_mode:
+            robot.move_to(name, linear=is_cartesian)
+        else:
+            robot.move_to(name, linear=is_cartesian, vel=0.125, acc=0.1)
         mode_label = "cartesian" if is_cartesian else "joint"
         messages.append(f"Moved to '{name}' ({mode_label})")
     except URKitConnectionError:
@@ -727,6 +738,7 @@ def _teach_pendant(
     config_path: str | Path | None = None,
     current_gripper_name: str | None = None,
     current_points_path: str | None = None,
+    expert_mode: bool = False,
 ) -> None:
     """Run the interactive teach pendant loop.
 
@@ -734,6 +746,7 @@ def _teach_pendant(
 
     Args:
         robot: Initialized URRobot instance.
+        expert_mode: When True, skip safety speed clamping on goto/tcp-down.
     """
     state: dict = {
         "linear_step": _DEFAULT_LINEAR_STEP,
@@ -744,6 +757,12 @@ def _teach_pendant(
         "goto_mode": "cartesian",  # "cartesian" or "joint" for Go To
         "speed_slider": 1.0,
     }
+
+    # Read the robot's current speed slider so the display matches reality.
+    try:
+        state["speed_slider"] = robot.get_speed_slider()
+    except Exception:
+        pass  # keep default 1.0 if unreadable
 
     messages: list[str] = []
 
@@ -861,6 +880,22 @@ def _teach_pendant(
                         vel, acc = _compute_vel_acc(
                             state["linear_step"], state["angular_step"], has_angular
                         )
+
+                        # Pre-check: verify the target pose is reachable
+                        try:
+                            pose = robot.get_tcp_pose()
+                            target = transform_pose_delta(
+                                pose, delta, frame=state["move_frame"]
+                            )
+                            robot.inverse_kinematics(target)
+                        except MotionError:
+                            messages.append("Unreachable: step would exceed joint limits")
+                            command_handled = True
+                            _draw_screen(robot, state, messages)
+                            messages = []
+                            last_refresh = time.monotonic()
+                            continue
+
                         robot.move_relative(delta, vel=vel, acc=acc, frame=state["move_frame"])
                         moved = True
                         last_move_t = time.monotonic()
@@ -947,8 +982,17 @@ def _teach_pendant(
                                 state["freedrive"] = False
                             pose = robot.get_tcp_pose()
                             target = orient_tcp_down(pose)
-                            robot.move_to(target, vel=0.5, acc=0.3)
-                            messages.append("TCP oriented downward")
+                            try:
+                                robot.inverse_kinematics(target)
+                            except MotionError:
+                                messages.append("Unreachable: TCP Down — no IK solution")
+                                command_handled = True
+                            else:
+                                if expert_mode:
+                                    robot.move_to(target, vel=0.5, acc=0.3)
+                                else:
+                                    robot.move_to(target, vel=0.125, acc=0.1)
+                                messages.append("TCP oriented downward")
                         except MotionError as e:
                             messages.append(f"Error: {e}")
                         command_handled = True
@@ -996,7 +1040,7 @@ def _teach_pendant(
                     _submenu_save_point(robot, messages)
                     command_handled = True
                 elif key == "g":
-                    _submenu_goto_point(robot, state, messages)
+                    _submenu_goto_point(robot, state, messages, expert_mode)
                     command_handled = True
                 elif key == "h":
                     _submenu_delete_point(robot, messages)
@@ -1172,12 +1216,15 @@ def teach_command(args) -> None:
             )
         sys.exit(1)
 
+    expert_mode = args.expert or config.get("expert_mode", False)
+
     try:
         _teach_pendant(
             robot,
             config_path=args.config,
             current_gripper_name=gripper_name,
             current_points_path=points_path,
+            expert_mode=expert_mode,
         )
     except KeyboardInterrupt:
         pass

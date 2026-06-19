@@ -95,6 +95,7 @@ urkit teach                           # reads IP from config.yaml
 | `--gripper-close-on-high` | Digital polarity: `true` or `false` |
 | `--points` | Path to `points.db` file (overrides config) |
 | `--config` | Path to config file (default: `config.yaml` in project root or CWD) |
+| `-e`, `--expert` | Disable safety speed clamping (full speed for goto/tcp-down) |
 | `-v`, `--verbose` | Show verbose output (debug connection issues) |
 
 ### Points Explorer
@@ -190,6 +191,23 @@ All movement and orientation keys support **hold-to-repeat**.
     </td>
   </tr>
 </table>
+
+### Safety
+
+By default, **Go To** and **TCP Down** movements use a slow velocity (0.125 m/s) — safe for students standing near the robot. The user's speed slider still applies as a global multiplier on top of this.
+
+Delta movements (W/S/A/D/Q/E) use step-size-based velocities that scale with the speed slider set by the user.
+
+To disable the slow default and use full speed, pass `--expert` or set `expert_mode: true` in your config:
+
+```bash
+urkit teach 172.31.1.200 --expert
+```
+
+```yaml
+# config.yaml
+expert_mode: true
+```
 
 ---
 
@@ -432,6 +450,7 @@ URKit searches for `config.yaml` in this order:
 | `gripper` | Gripper preset name | `hand-e`, `2f-85`, `2f-140`, `digital` |
 | `default_vel` | Default linear velocity (m/s) | `0.5` |
 | `default_acc` | Default linear acceleration (m/s²) | `0.3` |
+| `expert_mode` | Disable safety speed clamping | `false` |
 
 ### Gripper Config
 
