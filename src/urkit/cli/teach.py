@@ -170,6 +170,7 @@ def _draw_screen(
     robot: URRobot,
     state: dict,
     messages: list[str] | None = None,
+    expert_mode: bool = False,
 ) -> None:
     """Draw the full teach pendant screen.
 
@@ -206,6 +207,10 @@ def _draw_screen(
     lines.append(dim("=" * width))
     lines.append(cyan(f"  === URKit Teach Pendant ===").center(width))
     lines.append(cyan(f"  IP: {robot.ip}").center(width))
+    if expert_mode:
+        lines.append(yellow("  ⚠ EXPERT MODE (full speed) ⚠").center(width))
+    else:
+        lines.append(green("  ✓ SAFE MODE (slow speeds)  ").center(width))
 
     # Status section
     lines.append("")
@@ -217,6 +222,17 @@ def _draw_screen(
     goto_label = "Cartesian" if state["goto_mode"] == "cartesian" else "Joint"
     lines.append(f" {blue('Go To:'.ljust(lw))} {green(goto_label)} {dim('[N: toggle Cartesian/Joint]')}")
     lines.append(f" {blue('Gripper:'.ljust(lw))} {gripper_state}")
+
+    # Payload and TCP info
+    try:
+        payload = robot.get_payload()
+        tcp_label = f"{payload:.1f}kg"
+        if payload == 0:
+            tcp_label = f"{dim('0.0kg (no payload)')}"
+        lines.append(f" {blue('Payload:'.ljust(lw))} {tcp_label}")
+    except Exception:
+        pass
+
     if state["freedrive"]:
         mode_label = state["freedrive_mode"].name
         if mode_label == "XYZ":
@@ -815,7 +831,7 @@ def _teach_pendant(
     try:
         try:
             _configure_terminal()
-            _draw_screen(robot, state, messages)
+            _draw_screen(robot, state, messages, expert_mode)
 
             # How often to refresh the screen while in freedrive (no key pressed)
             _FREEDRIVE_REFRESH_S = 0.5
@@ -836,7 +852,7 @@ def _teach_pendant(
                         now = time.monotonic()
                         if now - last_refresh >= _FREEDRIVE_REFRESH_S:
                             last_refresh = now
-                            _draw_screen(robot, state, messages)
+                            _draw_screen(robot, state, messages, expert_mode)
 
                     # Check for fault detected by watchdog thread
                     if monitor.fault_detected:
@@ -896,7 +912,7 @@ def _teach_pendant(
                         except MotionError:
                             messages.append("Unreachable: step would exceed joint limits")
                             command_handled = True
-                            _draw_screen(robot, state, messages)
+                            _draw_screen(robot, state, messages, expert_mode)
                             messages = []
                             last_refresh = time.monotonic()
                             continue
@@ -1087,7 +1103,7 @@ def _teach_pendant(
 
                 # --- Redraw after movement or command ---
                 if moved or command_handled:
-                    _draw_screen(robot, state, messages)
+                    _draw_screen(robot, state, messages, expert_mode)
                     last_refresh = time.monotonic()
                     messages = []
 
