@@ -1,8 +1,8 @@
 """urkit CLI entry point.
 
 Usage:
-    urkit teach 192.168.1.100
-    urkit teach 192.168.1.100 --gripper=hand-e
+    urkit teach 172.31.1.42
+    urkit teach 172.31.1.42 --gripper=hand-e
     urkit points list
     urkit points list --filter "pick*"
 """

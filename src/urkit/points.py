@@ -39,7 +39,7 @@ class Point:
         """Return a new Point with the offset applied to the pose.
 
         Args:
-            offset: [dx, dy, dz, droll, dpitch, dyaw].
+            offset: [dx, dy, dz, drx, dry, drz].
             frame: Coordinate frame for interpreting the offset
                 (``MoveFrame.BASE`` or ``MoveFrame.TOOL``).
 

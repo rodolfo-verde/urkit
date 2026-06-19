@@ -32,14 +32,19 @@ Built on [`ur_rtde`](https://sdurobotics.gitlab.io/ur_rtde/), it packages the op
 ## Quick Start
 
 ```bash
-pip install urkit
+pip install -U urkit
 ```
+
+The `-U` (upgrade) flag ensures you always get the latest version — this project is in early development and changes frequently.
 
 Requires Python 3.8+ and a Universal Robots e-Series (UR3e to UR30).
 
 ### Robot Setup (one-time)
 
-1. **Network**: `☰` → `System` → `Network`: set the robot's IP and subnet.
+1. **Network**: `☰` → `System` → `System` → `Network`. Set a static IP on the robot and a matching one on your PC. Both addresses must share the same first three octets (the network), with a different last octet (the host). For example:
+   - **Robot**: `172.31.1.42` / Subnet `255.255.255.0`
+   - **PC**: `172.31.1.1` / Netmask `255.255.255.0`
+   - Verify with `ping 172.31.1.42`. Connect via direct Ethernet cable or a switch.
 2. **Remote Control**: `☰` → `System` → `Remote Control`: Enable. Press the remote/local button on the pendant.
 3. **Security**: `☰` → `Security` → `Services`: enable RTDE and disable EtherNet/IP, PROFINET, or MODBUS if they're claiming RTDE registers. Save and restart.
 
@@ -50,9 +55,9 @@ That's it. No `.urp` files to run, no extra programs needed.
 If you have a Robotiq gripper, install the **Robotiq Gripper Control** URCap first: download from [robotiq.com/support](https://robotiq.com/support), copy the `.urcap` to a USB drive, and install via `☰` → `Settings` → `System` → `URCaps`.
 
 ```python
-from urkit import URRobot, ROBOTIQ_2F_85  # or ROBOTIQ_2F_140, ROBOTIQ_HAND_E, or gripper=none
+from urkit import URRobot, ROBOTIQ_HAND_E  # or ROBOTIQ_2F_85, ROBOTIQ_2F_140, or gripper=None
 
-robot = URRobot(ip="172.31.1.200", points="points.db", gripper=ROBOTIQ_2F_85)
+robot = URRobot(ip="172.31.1.42", points="points.db", gripper=ROBOTIQ_HAND_E)
 robot.gripper.activate()
 
 robot.move_to("home")
@@ -64,9 +69,9 @@ robot.gripper.open()
 
 The typical workflow:
 
-1. **Teach points** — use the CLI to position the robot and save named waypoints.
-2. **Write code** — create a robot, move to points by name, apply offsets, run sequences.
-3. **Iterate** — add more points, tweak your code, repeat.
+1. **Teach points.** Use the CLI to position the robot and save named waypoints.
+2. **Write code.** Create a robot, move to points by name, apply offsets, run sequences.
+3. **Iterate.** Add more points, tweak your code, repeat.
 
 ---
 
@@ -79,8 +84,8 @@ URKit provides two CLI tools: **teach** for interactive robot control, and **poi
 The interactive teach pendant for moving the robot, saving points, and checking telemetry:
 
 ```bash
-urkit teach 172.31.1.200              # with robot IP
-urkit teach                           # reads IP from config.yaml
+urkit teach 172.31.1.42              # with robot IP
+urkit teach                          # reads IP from config.yaml
 ```
 
 **Flags:**
@@ -100,20 +105,12 @@ urkit teach                           # reads IP from config.yaml
 
 ### Points Explorer
 
-Browse saved waypoints with real-time search filtering — no robot connection needed:
+Browse saved waypoints with real-time search filtering. No robot connection needed:
 
 ```bash
 urkit points                          # uses default points.db
 urkit points test_points.db           # use specific database
 ```
-
-**Features:**
-- **Type to search** — real-time substring filtering
-- **Fuzzy matching** — type `pk` to find `pick_1` (>60% match)
-- **Smart sorting** — exact prefix matches first, then substring, then fuzzy
-- **Spatial sorting** — points ordered by proximity to "home" point (XYZ distance)
-- **Theme-aware** — automatically adapts colors for light/dark terminals
-- **Arrow keys** — scroll · **ESC** — quit
 
 ### Key Map
 
@@ -194,14 +191,14 @@ All movement and orientation keys support **hold-to-repeat**.
 
 ### Safety
 
-By default, **Go To** and **TCP Down** movements use a slow velocity (0.125 m/s) — safe for students standing near the robot. The user's speed slider still applies as a global multiplier on top of this.
+By default, **Go To** and **TCP Down** movements use a slow velocity (0.125 m/s) so its safer for anyone standing near the robot. The user's speed slider still applies as a global multiplier on top of this.
 
 Delta movements (W/S/A/D/Q/E) use step-size-based velocities that scale with the speed slider set by the user.
 
 To disable the slow default and use full speed, pass `--expert` or set `expert_mode: true` in your config:
 
 ```bash
-urkit teach 172.31.1.200 --expert
+urkit teach 172.31.1.42 --expert
 ```
 
 ```yaml
@@ -218,14 +215,14 @@ expert_mode: true
 ```python
 from urkit import URRobot, ROBOTIQ_HAND_E
 
-robot = URRobot(ip="172.31.1.200", points="points.db", gripper=ROBOTIQ_HAND_E)
+robot = URRobot(ip="172.31.1.42", points="points.db", gripper=ROBOTIQ_HAND_E)
 ```
 
 With custom motion defaults:
 
 ```python
 robot = URRobot(
-    ip="172.31.1.200",
+    ip="172.31.1.42",
     points="points.db",
     gripper=ROBOTIQ_HAND_E,
     default_vel=0.5,    # m/s
@@ -258,39 +255,41 @@ robot.gripper.open()                  # fully open (blocking by default)
 robot.gripper.close()                 # fully closed, stops on contact
 robot.gripper.open(wait=False)        # non-blocking return
 robot.gripper.set_position(20)        # 20mm open (Robotiq only, 0 = closed)
-robot.gripper.set_force(50)           # grip force: 0-100
-robot.gripper.set_speed(80)           # movement speed: 0-100
+robot.gripper.set_force(50)           # grip force: 0-100 (Robotiq only)
+robot.gripper.set_speed(80)           # movement speed: 0-100 (Robotiq only)
 ```
 
 Override preset values for custom fingers:
 
 ```python
-robot = URRobot(ip="172.31.1.200", points="points.db", gripper=ROBOTIQ_HAND_E, max_mm=120)
+robot = URRobot(ip="172.31.1.42", points="points.db", gripper=ROBOTIQ_HAND_E, max_mm=120)
 ```
 
 #### Digital I/O Grippers
 
-For suction cups, solenoids, or custom actuators:
+Robotiq grippers use a serial protocol over the robot's RS485 port. If you have a suction cup, solenoid, or any actuator controlled by a single digital output pin, use `DigitalGripperConfig` instead. It just turns that pin on (close) and off (open).
 
 ```python
 from urkit import URRobot, DigitalGripperConfig
 
 robot = URRobot(
-    ip="172.31.1.200",
+    ip="172.31.1.42",
     points="points.db",
-    gripper=DigitalGripperConfig(pin=3),
+    gripper=DigitalGripperConfig(pin=3),  # pin 3 goes high = close
 )
 
-robot.gripper.open()    # turn pin off (release)
-robot.gripper.close()   # turn pin on (grab)
+robot.gripper.open()    # turn pin 3 off
+robot.gripper.close()   # turn pin 3 on
 ```
+
+`set_force()` and `set_speed()` are not available for digital grippers.
 
 ### Points & Motion
 
-The points database is optional — create a robot without one and attach later:
+The points database is optional. Create a robot without one and attach later:
 
 ```python
-robot = URRobot(ip="172.31.1.200")
+robot = URRobot(ip="172.31.1.42")
 robot.points_db = "points.db"
 ```
 
@@ -302,13 +301,16 @@ robot.move_to("pick", linear=False)        # joint move
 robot.move_to("pick", vel=1.0, acc=0.5)    # override speed
 ```
 
-#### Raw Poses
+- **Linear (moveL):** TCP moves in a straight line. Predictable path, slower near complex orientations.
+- **Joint (moveJ):** Each joint moves simultaneously. Faster, but the TCP follows an arc.
 
-```python
-robot.move_to([0.5, 0, 0.3, 0, 0, 0])     # [x, y, z, rx, ry, rz]
-```
+#### Pose Format
+
+A pose is `[x, y, z, rx, ry, rz]`: position in meters and orientation as a **rotation vector** (axis-angle in radians). This is not RPY (roll/pitch/yaw). The teach pendant displays RPY in degrees, which is a different representation. Values you see on the pendant won't match `get_tcp_pose()` directly.
 
 #### Offsets
+
+Offsets are 6-element lists `[dx, dy, dz, drx, dry, drz]`:
 
 ```python
 robot.move_to("pick", offset=[0, 0, 0.05, 0, 0, 0])  # 5cm above pick
@@ -316,7 +318,7 @@ robot.move_to("pick", offset=[0, 0, 0.05, 0, 0, 0])  # 5cm above pick
 
 #### Resolve a Pose
 
-Get a pose without moving — useful for logging, comparisons, or custom motion:
+Get a pose without moving. Useful for logging, comparisons, or custom motion:
 
 ```python
 pose = robot.get_pose("pick")
@@ -330,11 +332,15 @@ robot.move_to(pose)  # move to the resolved pose later
 from urkit import MoveFrame
 
 robot.move_frame = MoveFrame.TOOL   # default is BASE
-robot.move_to("pick", offset=[0, 0, 0.05])  # 5cm along tool Z
+robot.move_relative([0, 0, 0.05, 0, 0, 0])  # 5cm along tool Z
 ```
 
-- **BASE** (default): offset relative to robot base
-- **TOOL**: offset relative to TCP orientation
+- **BASE** (default): delta relative to robot base
+- **TOOL**: delta relative to TCP orientation
+
+#### Points are tool-agnostic
+
+Points are stored in the active TCP frame, so they work with any tool. If you swap grippers and set the correct TCP offset, your saved points remain valid.
 
 #### Point Management
 
@@ -351,7 +357,7 @@ robot.import_points("backup.json")
 
 ```python
 robot.move_relative([0, 0.01, 0, 0, 0, 0])  # 1cm along Y
-robot.move_relative([0, 0, 0.05], frame=MoveFrame.TOOL)
+robot.move_relative([0, 0, 0.05, 0, 0, 0], frame=MoveFrame.TOOL)  # 5cm along tool Z
 ```
 
 #### Sequences with Blending
@@ -364,7 +370,7 @@ robot.move_sequence(["a", "b", "c"], blend_radius=0.02)
 #### Contact Detection
 
 ```python
-robot.move_until_contact([0, 0, -0.02, 0, 0, 0])  # Ctrl+C to stop
+robot.move_until_contact([0, 0, -0.02, 0, 0, 0])
 ```
 
 #### Velocity Control
@@ -388,11 +394,12 @@ robot.is_freedrive_active             # check state
 #### Speed Control
 
 ```python
-robot.speed_stop()                    # emergency stop
-robot.set_speed_slider(0.5)           # 50% hardware velocity cap
+robot.speed_stop()                    # stop velocity-controlled motion (not E-stop)
+robot.set_speed_slider(0.5)           # 50% velocity cap
+robot.get_speed_slider()              # read current slider (0.0-1.0)
 ```
 
-The speed slider is a hardware-level multiplier — same as the physical slider on the pendant. It's global, persistent, and affects all motion commands.
+The speed slider controls the pendant's speed multiplier. It's global, persistent, and affects all motion commands.
 
 #### Inverse Kinematics
 
@@ -407,7 +414,6 @@ pose = robot.get_tcp_pose()           # [x, y, z, rx, ry, rz]
 joints = robot.get_joint_positions()  # [j0..j5]
 force = robot.get_tcp_force()         # [fx, fy, fz, mx, my, mz]
 mode = robot.get_robot_mode()         # "REMOTE_CONTROL", "SERVOING", etc.
-scaling = robot.get_speed_scaling()   # 0.0-1.0
 payload = robot.get_payload()         # kg
 robot.is_protective_stopped()         # bool
 robot.is_emergency_stopped()          # bool
@@ -445,7 +451,7 @@ URKit searches for `config.yaml` in this order:
 
 | Key | Description | Example |
 |-----|-------------|---------|
-| `robot_ip` | Robot IP address | `192.168.1.100` |
+| `robot_ip` | Robot IP address | `172.31.1.42` |
 | `points_path` | Path to SQLite points database | `points.db` |
 | `gripper` | Gripper preset name | `hand-e`, `2f-85`, `2f-140`, `digital` |
 | `default_vel` | Default linear velocity (m/s) | `0.5` |
@@ -470,17 +476,17 @@ gripper_config:
 
 ### CLI Override Precedence
 
-1. **CLI flags** — `urkit teach 172.31.1.200 --gripper none`
-2. **Config file** — values from `config.yaml`
-3. **Built-in defaults** — `points.db`, no gripper, 0.5 m/s velocity
+1. **CLI flags.** `urkit teach 172.31.1.42 --gripper none`
+2. **Config file.** Values from `config.yaml`
+3. **Built-in defaults.** `points.db`, no gripper, 0.5 m/s velocity
 
 ### Saving Config
 
 The CLI **never** modifies your config file automatically. Press **Y** inside the teach pendant to save. This way you only save settings you've actually tested.
 
 ```bash
-urkit teach 172.31.1.200 --gripper hand-e  # test, then press Y
-urkit teach                                 # next time: reads from config
+urkit teach 172.31.1.42 --gripper hand-e  # test, then press Y
+urkit teach                               # next time: reads from config
 ```
 
 Multiple workcells:
@@ -498,7 +504,7 @@ from urkit import load_config, resolve_config
 config = load_config()                          # auto-resolve
 config = load_config("/path/to/my.yaml")        # explicit path
 path = resolve_config()                         # returns Path or None
-robot = URRobot.from_config({"robot_ip": "172.31.1.200", "gripper": "2f-85"})
+robot = URRobot.from_config({"robot_ip": "172.31.1.42", "gripper": "2f-85"})
 ```
 
 ---
@@ -510,7 +516,6 @@ robot = URRobot.from_config({"robot_ip": "172.31.1.200", "gripper": "2f-85"})
 URKit doesn't try to wrap everything. Access the raw `ur_rtde` interfaces for advanced features:
 
 ```python
-robot.rtde_control.moveUntilContact([0, 0, -0.02, 0, 0, 0])
 robot.rtde_control.forceMode(...)
 robot.rtde_control.servoJ(...)
 robot.rtde_receive.getActualCurrent()
@@ -530,10 +535,10 @@ robot.reconnect_rtde()      # reconnect after a drop
 ### Error Handling
 
 ```python
-from urkit import URKitError, RobotNotInRemoteModeError, RtdeRegisterConflictError
+from urkit import URKitError, MotionError, PointError
 
 try:
-    robot = URRobot(ip="172.31.1.200", points="points.db")
+    robot = URRobot(ip="172.31.1.42", points="points.db")
 except RobotNotInRemoteModeError:
     print("Enable remote control on the teach pendant!")
 except RtdeRegisterConflictError:
@@ -541,3 +546,19 @@ except RtdeRegisterConflictError:
 except URKitError as e:
     print(f"Error: {e}")
 ```
+
+Common runtime errors:
+
+| Exception | When |
+|-----------|------|
+| `MotionError` | Unreachable pose, bad TCP offset, freedrive failure |
+| `PointError` | Point not found, no points database configured |
+| `GripperError` | Gripper activation or communication failure |
+| `URKitIOError` | Invalid pin number, I/O read/write failure |
+| `TelemetryError` | Cannot read pose, joints, force, etc. |
+
+When the robot enters protective stop or the RTDE connection drops, motion commands raise `URKitConnectionError` and the program should exit. The CLI handles this automatically.
+
+### Connection Notes
+
+The `URRobot` constructor takes a few seconds on first call: it validates the connection, checks remote mode, powers on the robot, releases brakes, and connects RTDE. Subsequent calls are faster if the robot is already running.

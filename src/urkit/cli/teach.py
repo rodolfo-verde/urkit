@@ -4,9 +4,9 @@ A single terminal-based UI for manual robot control, point management,
 and freedrive — matching the pattern from robot_mover's point_saver.cpp.
 
 Usage:
-    urkit 192.168.1.100                  # connect with IP
+    urkit 172.31.1.42                  # connect with IP
     urkit                                # reads robot_ip from config
-    urkit -v 192.168.1.100               # verbose (debug boot commands)
+    urkit -v 172.31.1.42               # verbose (debug boot commands)
 """
 
 from __future__ import annotations
@@ -29,13 +29,18 @@ from urkit import load_config, resolve_config
 from urkit.cli.colors import blue, cyan, dim, green, red, yellow
 from urkit.cli.connection_monitor import ConnectionMonitor
 from urkit.cli.points import _interactive_points_filter
-from urkit.exceptions import URKitConnectionError
 from urkit.connection import (
     _connect_dashboard,
     _dashboard_command,
     _ping,
 )
-from urkit.exceptions import GripperError, MotionError, PointError, URKitConnectionError as ConnectionError
+from urkit.exceptions import (
+    GripperError,
+    MotionError,
+    PointError,
+    URKitConnectionError,
+    URKitConnectionError as ConnectionError,
+)
 from urkit.geometry import MoveFrame, orient_tcp_down, transform_pose_delta
 from urkit.gripper.presets import DigitalGripperConfig, GripperPreset, PRESETS
 from urkit.motion import FreedriveMode
@@ -60,9 +65,9 @@ def _resolve_default_config_path() -> Path:
 _DEFAULT_LINEAR_STEP = 0.005       # 5mm
 _DEFAULT_LINEAR_STEP_MIN = 0.0001  # 0.1mm
 _DEFAULT_LINEAR_STEP_MAX = 0.05    # 50mm (5cm)
-_DEFAULT_ANGULAR_STEP = math.radians(1)  # 1 degree in radians
+_DEFAULT_ANGULAR_STEP = math.radians(0.5)  # 0.5 degrees in radians
 _DEFAULT_ANGULAR_STEP_MIN = math.radians(0.1)  # 0.1 degrees
-_DEFAULT_ANGULAR_STEP_MAX = math.radians(25)   # 25 degrees
+_DEFAULT_ANGULAR_STEP_MAX = math.radians(5)    # 5 degrees
 
 # Safe motion limits (UR protective stop thresholds)
 _MAX_VEL = 3.0        # m/s
@@ -290,7 +295,7 @@ def _draw_help() -> None:
     lines: list[str] = []
 
     lines.append("=" * width)
-    lines.append("  === URKit Teach Pendant — Help ===".center(width))
+    lines.append("  === URKit Teach Pendant: Help ===".center(width))
     lines.append("=" * width)
     lines.append("")
     lines.append("  MOVE:")
@@ -302,8 +307,9 @@ def _draw_help() -> None:
     lines.append("    J/L    → Yaw ± move")
     lines.append("")
     lines.append("  STEP SIZE:")
-    lines.append("    1/2    → Linear step ÷2/×2")
-    lines.append("    3/4    → Angular step ÷2/×2")
+    lines.append("    1      → Set linear step (default 5 mm, range 0.1–50)")
+    lines.append("    2      → Set angular step (default 0.5°, range 0.1–5)")
+    lines.append("    .      → Reset defaults")
     lines.append("")
     lines.append("  GRIPPER:")
     lines.append("    X      → Open")
@@ -1189,7 +1195,7 @@ def teach_command(args) -> None:
 
     if not ip:
         print("Error: No robot IP specified.")
-        print("  Usage: urkit 192.168.1.100")
+        print("  Usage: urkit 172.31.1.42")
         print("  Or:    urkit (uses last-used IP from config)")
         print(f"  Config: {_resolve_default_config_path()}")
         sys.exit(1)
@@ -1197,7 +1203,7 @@ def teach_command(args) -> None:
     # Validate IP format before any connection attempt
     if not _validate_ip(ip):
         print(f"Error: \"{ip}\" is not a valid IPv4 address.")
-        print("  Usage: urkit 192.168.1.100")
+        print("  Usage: urkit 172.31.1.42")
         sys.exit(1)
 
     # Quick ping check to verify reachability

@@ -369,7 +369,7 @@ def transform_pose_delta(
 
     Args:
         pose: Current TCP pose [x, y, z, rx, ry, rz].
-        delta: Delta [dx, dy, dz, droll, dpitch, dyaw].
+        delta: Delta [dx, dy, dz, drx, dry, drz].
         frame: Coordinate frame for interpreting the delta.
 
     Returns:

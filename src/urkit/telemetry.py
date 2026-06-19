@@ -109,27 +109,6 @@ class Telemetry:
         except Exception:
             return False
 
-    def get_speed_scaling(self) -> float:
-        """Get the current speed scaling factor.
-
-        Returns the trajectory limiter speed scaling, which indicates
-        what fraction of the programmed speed the robot is actually
-        running at. This value can be lower than the slider setting
-        due to safety limits, blending, or other constraints.
-
-        Returns:
-            Speed scaling as a float between 0.0 and 1.0.
-
-        Raises:
-            TelemetryError: If speed scaling cannot be read.
-        """
-        try:
-            return float(self._rtde_r.getSpeedScaling())
-        except Exception as e:
-            raise TelemetryError(
-                f"Failed to read speed scaling: {e}"
-            )
-
     def get_payload(self) -> float:
         """Get the currently configured payload mass.
 

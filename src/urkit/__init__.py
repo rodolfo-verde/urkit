@@ -10,7 +10,7 @@ Quick start::
     from urkit import URRobot, ROBOTIQ_HAND_E
 
     robot = URRobot(
-        ip="192.168.1.100",
+        ip="172.31.1.42",
         points="points.db",
         gripper=ROBOTIQ_HAND_E,
     )
@@ -24,7 +24,7 @@ Quick start::
 
 from __future__ import annotations
 
-from importlib.metadata import version as _metadata_version
+__version__ = "0.3.0"
 
 from urkit.config import load_config, resolve_config
 from urkit.exceptions import (
@@ -58,8 +58,6 @@ from urkit.gripper.presets import (
 )
 from urkit.motion import FreedriveMode
 from urkit.robot import URRobot
-
-__version__ = _metadata_version("urkit")
 
 __all__ = [
     # Version

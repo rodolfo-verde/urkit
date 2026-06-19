@@ -1,7 +1,7 @@
 """Integration tests against a real Universal Robot.
 
 Set ROBOT_IP environment variable to run:
-    ROBOT_IP=172.31.1.200 PYTHONPATH= .venv/bin/python -m pytest tests/test_robot_integration.py -v
+    ROBOT_IP=172.31.1.42 PYTHONPATH= .venv/bin/python -m pytest tests/test_robot_integration.py -v
 
 Tests are skipped automatically if ROBOT_IP is not set or the robot
 is unreachable. All tests are designed to be safe — read-only telemetry
@@ -94,10 +94,6 @@ class TestTelemetry:
         mode = robot.get_robot_mode()
         assert isinstance(mode, str)
         assert len(mode) > 0
-
-    def test_speed_scaling_range(self, robot):
-        scaling = robot.get_speed_scaling()
-        assert 0.0 <= scaling <= 1.0
 
     def test_payload_returns_float(self, robot):
         payload = robot.get_payload()

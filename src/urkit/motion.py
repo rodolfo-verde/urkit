@@ -10,6 +10,7 @@ from __future__ import annotations
 import logging
 import os
 import sys
+import time as _time
 from contextlib import contextmanager
 from enum import IntEnum
 from typing import TYPE_CHECKING
@@ -209,7 +210,7 @@ class Motion:
         resulting pose.
 
         Args:
-            delta: 6 floats [dx, dy, dz, droll, dpitch, dyaw].
+            delta: 6 floats [dx, dy, dz, drx, dry, drz].
             vel: Linear velocity (m/s). Falls back to default_vel.
             acc: Linear acceleration (m/s²). Falls back to default_acc.
             frame: Coordinate frame for interpreting the delta
@@ -220,7 +221,7 @@ class Motion:
         """
         if len(delta) != 6:
             raise MotionError(
-                f"Relative move requires 6 values [dx,dy,dz,droll,dpitch,dyaw], "
+                f"Relative move requires 6 values [dx,dy,dz,drx,dry,drz], "
                 f"got {len(delta)}."
             )
         vel = vel if vel is not None else self._default_vel
@@ -379,8 +380,6 @@ class Motion:
             raise MotionError(f"Duration must be > 0, got {duration}.")
 
         try:
-            import time as _time
-
             start = _time.monotonic()
             while True:
                 elapsed = _time.monotonic() - start

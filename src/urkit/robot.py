@@ -82,7 +82,7 @@ class URRobot:
 
     Example:
         >>> from urkit import URRobot, ROBOTIQ_2F_85
-        >>> robot = URRobot(ip="192.168.1.100", gripper=ROBOTIQ_2F_85)
+        >>> robot = URRobot(ip="172.31.1.42", gripper=ROBOTIQ_2F_85)
         >>> robot.move_relative([0.01, 0, 0, 0, 0, 0])  # works without points
         >>> robot.points_db = "points.db"  # set lazily
         >>> robot.save_point("home")
@@ -317,9 +317,12 @@ class URRobot:
 
         Config file keys::
 
-            robot_ip: 172.31.1.200
+            robot_ip: 172.31.1.42
             points_path: points.db
             gripper: hand-e
+            gripper_config:
+                force: 50
+                speed: 80
             default_vel: 0.5
             default_acc: 0.3
             rtde_frequency: 500
@@ -327,7 +330,7 @@ class URRobot:
         Example:
             >>> robot = URRobot.from_config("config.yaml")
             >>> robot = URRobot.from_config("config.yaml", ip="10.0.0.50")
-            >>> robot = URRobot.from_config({"robot_ip": "172.31.1.200", "points_path": "points.db", "gripper": "2f-85"})
+            >>> robot = URRobot.from_config({"robot_ip": "172.31.1.42", "points_path": "points.db", "gripper": "2f-85"})
         """
         from urkit.config import load_config, resolve_config
 
@@ -378,11 +381,13 @@ class URRobot:
                         f"Available: {', '.join(sorted(PRESETS.keys()))}, 'digital'."
                     )
 
-        # Merge config gripper overrides into gripper_kwargs
+        # Merge config gripper overrides into gripper_kwargs.
+        # Check nested gripper_config first, then top-level for backwards compat.
         gripper_overrides = ("max_mm", "force", "speed", "pin", "close_on_high")
+        nested_cfg = cfg.get("gripper_config") or {}
         for key in gripper_overrides:
-            if key not in gripper_kwargs and key in cfg:
-                gripper_kwargs[key] = cfg[key]
+            if key not in gripper_kwargs:
+                gripper_kwargs[key] = nested_cfg.get(key, cfg.get(key))
 
         return cls(
             ip=resolved_ip,
@@ -799,7 +804,7 @@ class URRobot:
         Args:
             target: A saved point name (str) or a raw TCP pose
                 [x, y, z, rx, ry, rz].
-            offset: Optional offset [dx, dy, dz, droll, dpitch, dyaw]
+            offset: Optional offset [dx, dy, dz, drx, dry, drz]
                 applied to the target pose.
             frame: Coordinate frame for the offset. Falls back to the
                 current ``move_frame`` property (BASE or TOOL).
@@ -820,7 +825,7 @@ class URRobot:
         if offset is not None:
             if len(offset) != 6:
                 raise PointError(
-                    f"Offset must have 6 values [dx, dy, dz, droll, dpitch, dyaw], "
+                    f"Offset must have 6 values [dx, dy, dz, drx, dry, drz], "
                     f"got {len(offset)}."
                 )
             point = point.with_offset(offset, frame=frame or self._move_frame)
@@ -844,7 +849,7 @@ class URRobot:
                 [x, y, z, rx, ry, rz].
             linear: If True (default), use Cartesian linear move (moveL).
                 If False, use joint-space move (moveJ).
-            offset: Optional offset [dx, dy, dz, droll, dpitch, dyaw]
+            offset: Optional offset [dx, dy, dz, drx, dry, drz]
                 applied to the target pose before moving.
             frame: Coordinate frame for the offset. Falls back to the
                 current ``move_frame`` property (BASE or TOOL).
@@ -871,7 +876,7 @@ class URRobot:
         if offset is not None:
             if len(offset) != 6:
                 raise PointError(
-                    f"Offset must have 6 values [dx, dy, dz, droll, dpitch, dyaw], "
+                    f"Offset must have 6 values [dx, dy, dz, drx, dry, drz], "
                     f"got {len(offset)}."
                 )
             point = point.with_offset(offset, frame=frame or self._move_frame)
@@ -910,7 +915,7 @@ class URRobot:
         coordinate frame, and moves to the resulting pose.
 
         Args:
-            delta: [dx, dy, dz, droll, dpitch, dyaw] in meters/radians.
+            delta: [dx, dy, dz, drx, dry, drz] in meters/radians.
             linear: If True (default), use Cartesian linear move.
                 If False, solve IK and use joint-space move.
             frame: Coordinate frame for the delta. Falls back to the
@@ -930,7 +935,7 @@ class URRobot:
 
         if len(delta) != 6:
             raise MotionError(
-                f"Relative move requires 6 values [dx,dy,dz,droll,dpitch,dyaw], "
+                f"Relative move requires 6 values [dx,dy,dz,drx,dry,drz], "
                 f"got {len(delta)}."
             )
 
@@ -1201,14 +1206,6 @@ class URRobot:
     def get_robot_mode(self) -> str:
         """Get the current robot mode string."""
         return self._telemetry.get_robot_mode()
-
-    def get_speed_scaling(self) -> float:
-        """Get the current speed scaling factor (0.0–1.0).
-
-        Returns the trajectory limiter speed scaling — what fraction
-        of the programmed speed the robot is actually running at.
-        """
-        return self._telemetry.get_speed_scaling()
 
     def get_payload(self) -> float:
         """Get the currently configured payload mass (kg)."""

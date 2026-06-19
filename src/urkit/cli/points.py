@@ -8,10 +8,11 @@ Usage:
 from __future__ import annotations
 
 import difflib
-import math
+import io
 import select
 import sys
 import termios
+import time
 from pathlib import Path
 
 from rich.console import Console
@@ -29,44 +30,6 @@ def points_command(args) -> None:
         args: Parsed arguments from argparse (with points subcommand attributes).
     """
     _explore_points(args)
-
-
-def _euclidean_distance(pose1: list, pose2: list) -> float:
-    """Calculate Euclidean distance between two poses (using XYZ only)."""
-    return math.sqrt(sum((pose1[i] - pose2[i]) ** 2 for i in range(3)))
-
-
-def _sort_points_by_proximity(
-    points_db: Points, point_names: list[str], reference_name: str = "home"
-) -> list[str]:
-    """Sort points by distance from a reference point, then alphabetically.
-    
-    Args:
-        points_db: Loaded Points database.
-        point_names: List of point names to sort.
-        reference_name: Name of the reference point (default: "home").
-    
-    Returns:
-        Sorted list of point names.
-    """
-    try:
-        ref_pose = points_db[reference_name].pose
-    except KeyError:
-        # If reference point doesn't exist, use the first point
-        if point_names:
-            ref_pose = points_db[point_names[0]].pose
-        else:
-            return point_names
-
-    def sort_key(name: str):
-        try:
-            pose = points_db[name].pose
-            distance = _euclidean_distance(ref_pose, pose)
-            return (distance, name)  # Sort by distance, then by name
-        except KeyError:
-            return (float("inf"), name)
-
-    return sorted(point_names, key=sort_key)
 
 
 def _sort_filtered_points(filtered: list[str], search_str: str) -> list[str]:
@@ -127,10 +90,10 @@ def _explore_points(args) -> None:
         print("No points saved yet.")
         return
 
-    _interactive_points_filter(points_db, all_points)
+    _interactive_points_filter(points_db, all_points, points_path)
 
 
-def _interactive_points_filter(points_db: Points, all_points: list[str]) -> None:
+def _interactive_points_filter(points_db: Points, all_points: list[str], points_path: Path) -> None:
     """Interactive point explorer with real-time table filtering.
 
     User types to filter, arrow keys scroll, ESC to quit.
@@ -138,6 +101,7 @@ def _interactive_points_filter(points_db: Points, all_points: list[str]) -> None
     Args:
         points_db: Loaded Points database.
         all_points: List of all saved point names.
+        points_path: Path to the database file (for existence check).
     """
     # Check if stdin is a TTY (interactive terminal)
     if not sys.stdin.isatty():
@@ -145,12 +109,15 @@ def _interactive_points_filter(points_db: Points, all_points: list[str]) -> None
         print("Run 'urkit points' in an interactive shell.")
         sys.exit(1)
 
-    # Sort all points by proximity
-    all_points_sorted = _sort_points_by_proximity(points_db, all_points)
+    # Sort all points alphabetically
+    all_points_sorted = sorted(all_points)
 
     filter_str = ""
     scroll = 0  # Scroll offset for viewing
     needs_redraw = True  # Flag to redraw only when needed
+    last_refresh = time.time()
+    refresh_interval = 2.0  # seconds
+    refresh_error = None
 
     # Set terminal to raw mode
     old_settings = termios.tcgetattr(sys.stdin)
@@ -197,11 +164,19 @@ def _interactive_points_filter(points_db: Points, all_points: list[str]) -> None
                 # Clear screen and draw header
                 sys.stdout.write("\033[2J\033[1;1H")
                 sys.stdout.write(cyan("  === POINT EXPLORER ===") + "\n")
-                sys.stdout.write(dim("  Type to search · ↑↓ scroll · ESC quit") + "\n\n")
-                sys.stdout.write(f"  {blue('Search:')} {filter_str}\n\n")
+                sys.stdout.write(dim("  Type to search · ↑↓ scroll · Enter reload · ESC quit") + "\n\n")
+                sys.stdout.write(f"  {blue('Search:')} {filter_str}\n")
+                if refresh_error:
+                    sys.stdout.write(yellow(f"  Error: {refresh_error}") + "\n")
+                sys.stdout.write("\n")
 
                 if not filtered:
-                    sys.stdout.write(yellow(f"  No points match '{filter_str}'") + "\n")
+                    if refresh_error:
+                        sys.stdout.write(yellow("  No points available") + "\n")
+                    elif filter_str:
+                        sys.stdout.write(yellow(f"  No points match '{filter_str}'") + "\n")
+                    else:
+                        sys.stdout.write(yellow("  No points in the database") + "\n")
                 else:
                     # Build rich table with theme-aware colors
                     table = Table(show_header=True, header_style="bold", padding=(0, 1))
@@ -230,7 +205,6 @@ def _interactive_points_filter(points_db: Points, all_points: list[str]) -> None
                             table.add_row(point_name, *["ERROR"] * 6)
 
                     # Capture and print table with indentation
-                    import io
                     buffer = io.StringIO()
                     temp_console = Console(file=buffer, force_terminal=True)
                     temp_console.print(table)
@@ -241,8 +215,32 @@ def _interactive_points_filter(points_db: Points, all_points: list[str]) -> None
                 sys.stdout.flush()
                 needs_redraw = False
 
-            # Check for input (blocking, no timeout)
-            rlist, _, _ = select.select([fd], [], [])
+            # Auto-refresh points periodically (e.g., user saving from another window)
+            if time.time() - last_refresh > refresh_interval:
+                if not points_path.exists():
+                    refresh_error = "Database file deleted"
+                    all_points = []
+                    all_points_sorted = []
+                    filtered = []
+                    scroll = 0
+                    needs_redraw = True
+                else:
+                    try:
+                        new_points = points_db.list()
+                        refresh_error = None
+                        if new_points != all_points:
+                            all_points = new_points
+                            all_points_sorted = sorted(all_points)
+                            filtered = [p for p in all_points_sorted if filter_str == "" or filter_str.lower() in p.lower()]
+                            scroll = 0
+                            needs_redraw = True
+                    except Exception as e:
+                        refresh_error = str(e)
+                        needs_redraw = True
+                last_refresh = time.time()
+
+            # Check for input (non-blocking to allow periodic refresh)
+            rlist, _, _ = select.select([fd], [], [], 0.1)
             if not rlist:
                 continue
 
@@ -252,11 +250,11 @@ def _interactive_points_filter(points_db: Points, all_points: list[str]) -> None
             except Exception:
                 break
 
-            if ch == "\x1b":  # ESC or arrow key
-                # Use longer timeout to reliably detect arrow sequences
+            if ch == "\x1b":  # ESC or arrow key or function key
+                # Use longer timeout to reliably detect sequences
                 rlist, _, _ = select.select([fd], [], [], 0.2)
                 if rlist:
-                    # There's more input, likely an arrow sequence
+                    # There's more input, likely an arrow or function key sequence
                     try:
                         ch2 = sys.stdin.read(1)
                         if ch2 == "[":
@@ -278,6 +276,25 @@ def _interactive_points_filter(points_db: Points, all_points: list[str]) -> None
                     filter_str = filter_str[:-1]
                     scroll = 0
                     needs_redraw = True
+            elif ch == "\r":  # Enter — reload points from database
+                if not points_path.exists():
+                    refresh_error = "Database file deleted"
+                    all_points = []
+                    all_points_sorted = []
+                    filtered = []
+                    scroll = 0
+                    needs_redraw = True
+                else:
+                    try:
+                        all_points = points_db.list()
+                        refresh_error = None
+                        all_points_sorted = sorted(all_points)
+                        filtered = [p for p in all_points_sorted if filter_str == "" or filter_str.lower() in p.lower()]
+                        scroll = 0
+                        needs_redraw = True
+                    except Exception as e:
+                        refresh_error = str(e)
+                        needs_redraw = True
             elif ch.isprintable():
                 filter_str += ch
                 scroll = 0
