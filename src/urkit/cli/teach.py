@@ -794,6 +794,10 @@ def _teach_pendant(
     # os._exit() works even when blocked in C library code.
     def _sigint_handler(signum: int, frame: object) -> None:
         try:
+            robot.speed_stop()
+        except Exception:
+            pass
+        try:
             _restore_terminal(old_settings)
         except Exception:
             pass
@@ -863,6 +867,7 @@ def _teach_pendant(
 
                 # Exit
                 if key == "\x1b" or key == "\x03":
+                    robot.speed_stop()
                     break
 
                 # --- Movement keys (one press = one step) ---
