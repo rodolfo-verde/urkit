@@ -189,6 +189,35 @@ All movement and orientation keys support **hold-to-repeat**.
   </tr>
 </table>
 
+### Joint Display
+
+The teach pendant shows live joint angles alongside TCP position and orientation:
+
+```
+ Position      X=+0.432  Y=+0.111  Z=+0.227
+ Orientation   R=+131.3  P=-121.0  Y= +8.0
+ Joints        J1=+150.0  J2=+020.0  J3=+160.0
+               J4=+050.0  J5=-080.0  J6=+157.0
+```
+
+Joint angles color-code proximity to mechanical limits:
+
+- **Yellow**: within 10% of joint range (warning)
+- **Red**: within 5% of joint range (danger)
+
+UR e-Series joint limits:
+
+| Joint | Range | Notes |
+|-------|-------|-------|
+| J1 (shoulder pan) | ±360° | Full rotation |
+| J2 (shoulder lift) | ±360° | Full rotation |
+| J3 (elbow) | ±180° | Physically restricted — shoulder lift gets in the way |
+| J4 (wrist 1) | ±360° | Full rotation |
+| J5 (wrist 2) | ±360° | Full rotation |
+| J6 (wrist 3) | ±360° | Tool flange unlimited rotation |
+
+Thresholds scale with each joint's range, so warning zones feel proportional across all joints.
+
 ### Safety
 
 By default, **Go To** and **TCP Down** movements use a slow velocity (0.125 m/s) so its safer for anyone standing near the robot. The user's speed slider still applies as a global multiplier on top of this.

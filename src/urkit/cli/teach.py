@@ -75,10 +75,54 @@ _MAX_ACC = 6.0        # m/s²
 _MAX_ANG_VEL = 1.5    # rad/s
 _MAX_ANG_ACC = 3.0    # rad/s²
 
+# UR e-Series joint limits (degrees) — [min, max] for each joint
+# Sources: UR User Manuals (UR3e/UR5e/UR10e v5.8), ros-industrial ur_description
+# J3 (elbow) physically restricted to ±180° — shoulder lift joint gets in the way.
+# J6 (tool flange) unlimited rotation; ±360 used as practical display limit.
+_JOINT_LIMITS_DEG = [
+    (-360, 360),   # J1 shoulder pan
+    (-360, 360),   # J2 shoulder lift
+    (-180, 180),   # J3 elbow (physically restricted)
+    (-360, 360),   # J4 wrist 1
+    (-360, 360),   # J5 wrist 2
+    (-360, 360),   # J6 wrist 3 (unlimited rotation)
+]
+_JOINT_WARN_PCT = 10   # Yellow when within this % of joint range
+_JOINT_DANGER_PCT = 5  # Red when within this % of joint range
+
 # ------------------------------------------------------------------
 # Dynamic velocity/acceleration from step size
 # ------------------------------------------------------------------
 
+
+def _joint_color(deg: float, joint_idx: int) -> str:
+    """Return ANSI color for a joint angle based on proximity to limits.
+
+    Thresholds are percentages of the joint's total range, so warning
+    zones scale with each joint's actual mechanical range.
+
+    Args:
+        deg: Joint angle in degrees.
+        joint_idx: Joint index (0-5).
+
+    Returns:
+        ANSI color string (red, yellow, or empty).
+    """
+    if joint_idx >= len(_JOINT_LIMITS_DEG):
+        return f"{deg:+5.1f}"
+    min_deg, max_deg = _JOINT_LIMITS_DEG[joint_idx]
+    total_range = max_deg - min_deg
+    warn_margin = total_range * (_JOINT_WARN_PCT / 100.0)
+    danger_margin = total_range * (_JOINT_DANGER_PCT / 100.0)
+    if deg <= min_deg + danger_margin:
+        return red(f"{deg:+5.1f}")
+    elif deg <= min_deg + warn_margin:
+        return yellow(f"{deg:+5.1f}")
+    elif deg >= max_deg - danger_margin:
+        return red(f"{deg:+5.1f}")
+    elif deg >= max_deg - warn_margin:
+        return yellow(f"{deg:+5.1f}")
+    return f"{deg:+5.1f}"
 
 def _compute_vel_acc(
     linear_step: float,
@@ -213,15 +257,18 @@ def _draw_screen(
     lines.append(cyan(f"  === URKit Teach Pendant ===").center(width))
     lines.append(cyan(f"  IP: {robot.ip}").center(width))
     if expert_mode:
-        lines.append(yellow("  ⚠ EXPERT MODE (full speed) ⚠").center(width))
+        lines.append(yellow("  EXPERT MODE").center(width))
     else:
-        lines.append(green("  ✓ SAFE MODE (slow speeds)  ").center(width))
+        lines.append(green("  SAFE MODE").center(width))
 
     # Status section
     lines.append("")
     lw = 13  # label width for left alignment
     lines.append(f" {blue('Position'.ljust(lw))} X={pose[0]:+5.3f}  Y={pose[1]:+5.3f}  Z={pose[2]:+5.3f}")
     lines.append(f" {blue('Orientation'.ljust(lw))} R={math.degrees(pose[3]):+5.1f}  P={math.degrees(pose[4]):+5.1f}  Y={math.degrees(pose[5]):+5.1f}")
+    j = [math.degrees(j) for j in joints]
+    lines.append(f" {blue('Joints'.ljust(lw))} J1={_joint_color(j[0], 0)}  J2={_joint_color(j[1], 1)}  J3={_joint_color(j[2], 2)}")
+    lines.append(f" {'':>{lw}} J4={_joint_color(j[3], 3)}  J5={_joint_color(j[4], 4)}  J6={_joint_color(j[5], 5)}")
     lines.append(f" {blue('Step:'.ljust(lw))} L={state['linear_step']*1000:.1f}mm  A={math.degrees(state['angular_step']):.1f}°")
     lines.append(f" {blue('Frame:'.ljust(lw))} {green(state['move_frame'].name)} {dim('[M: toggle BASE/TOOL]')}")
     goto_label = "Cartesian" if state["goto_mode"] == "cartesian" else "Joint"
@@ -231,9 +278,10 @@ def _draw_screen(
     # Payload and TCP info
     try:
         payload = robot.get_payload()
-        tcp_label = f"{payload:.1f}kg"
         if payload == 0:
             tcp_label = f"{dim('0.0kg (no payload)')}"
+        else:
+            tcp_label = green(f"{payload:.1f}kg")
         lines.append(f" {blue('Payload:'.ljust(lw))} {tcp_label}")
     except Exception:
         pass
@@ -816,6 +864,12 @@ def _teach_pendant(
     # os._exit() works even when blocked in C library code.
     def _sigint_handler(signum: int, frame: object) -> None:
         try:
+            if state["freedrive"]:
+                robot.disable_freedrive()
+                state["freedrive"] = False
+        except Exception:
+            pass
+        try:
             robot.speed_stop()
         except Exception:
             pass
@@ -889,6 +943,12 @@ def _teach_pendant(
 
                 # Exit
                 if key == "\x1b" or key == "\x03":
+                    if state["freedrive"]:
+                        try:
+                            robot.disable_freedrive()
+                            state["freedrive"] = False
+                        except Exception:
+                            pass
                     robot.speed_stop()
                     break
 
