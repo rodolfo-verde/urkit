@@ -8,6 +8,7 @@ velocity and acceleration override.
 from __future__ import annotations
 
 import logging
+import math
 import os
 import sys
 import time as _time
@@ -247,6 +248,126 @@ class Motion:
             raise MotionError(
                 f"Relative move failed: {e}"
             )
+
+    def move_to_interruptible(
+        self,
+        target: list[float],
+        vel: float | None = None,
+        acc: float | None = None,
+        tolerance: float = 0.001,  # 1mm positional tolerance
+        dt: float = 0.002,  # 500 Hz control loop
+    ) -> None:
+        """Move to target pose using interruptible control loop.
+
+        Unlike ``moveL()``, this method runs a 500 Hz control loop that
+        sends ``speedL()`` commands and checks the current pose each
+        cycle. This makes it interruptible with ``KeyboardInterrupt``
+        (Ctrl+C) because Python runs between cycles.
+
+        The robot approaches the target using proportional control:
+        speed is proportional to distance remaining, capped at ``vel``.
+        Motion stops when within ``tolerance`` meters of the target.
+
+        Args:
+            target: 6-element pose [x, y, z, rx, ry, rz].
+            vel: Maximum linear velocity (m/s). Falls back to default_vel.
+            acc: Acceleration limit (m/s²). Falls back to default_acc.
+            tolerance: Stop when within this distance (meters). Default 1mm.
+            dt: Control loop period (seconds). Default 0.002 = 500 Hz.
+
+        Raises:
+            MotionError: If the move fails or connection is lost.
+
+        Example:
+            >>> motion.move_to_interruptible([0.5, 0, 0.3, 0, 0, 0], vel=0.5)
+        """
+        if len(target) != 6:
+            raise MotionError(
+                f"Interruptible move requires 6 values [x,y,z,rx,ry,rz], got {len(target)}."
+            )
+        vel = vel if vel is not None else self._default_vel
+        acc = acc if acc is not None else self._default_acc
+
+        try:
+            logger.debug(
+                "move_to_interruptible: target=%s, vel=%.3f, acc=%.3f",
+                target, vel, acc,
+            )
+
+            while True:
+                if not self._rtde_c.isConnected():
+                    raise MotionError(
+                        "RTDE connection lost during interruptible move."
+                    )
+
+                # Check safety state
+                try:
+                    if self._rtde_r.isProtectiveStopped():
+                        raise MotionError(
+                            "Robot is in protective stop."
+                        )
+                    if self._rtde_r.isEmergencyStopped():
+                        raise MotionError(
+                            "Robot is in emergency stop."
+                        )
+                except MotionError:
+                    raise
+                except Exception:
+                    pass  # Telemetry read failed, continue
+
+                # Read current pose
+                current = list(self._rtde_r.getActualTCPPose())
+
+                # Calculate position error (first 3 elements)
+                pos_error = [
+                    target[0] - current[0],
+                    target[1] - current[1],
+                    target[2] - current[2],
+                ]
+                distance = math.sqrt(sum(e**2 for e in pos_error))
+
+                # Check if we've reached the target
+                if distance < tolerance:
+                    with _suppress_rtde_stderr():
+                        self._rtde_c.speedStop()
+                    logger.debug(
+                        "Interruptible move complete: distance=%.4f",
+                        distance,
+                    )
+                    return
+
+                # Proportional control: speed proportional to distance
+                # Cap at max velocity
+                gain = 2.0  # Converge in ~0.5s from 1m
+                speed_mag = min(gain * distance, vel)
+
+                # Normalize error direction and scale by speed
+                if distance > 1e-6:
+                    speed_vector = [
+                        pos_error[0] / distance * speed_mag,
+                        pos_error[1] / distance * speed_mag,
+                        pos_error[2] / distance * speed_mag,
+                        0.0,  # No rotational speed (let IK handle orientation)
+                        0.0,
+                        0.0,
+                    ]
+                else:
+                    speed_vector = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+
+                with _suppress_rtde_stderr():
+                    t_start = self._rtde_c.initPeriod()
+                    self._rtde_c.speedL(speed_vector, acc, dt)
+                    self._rtde_c.waitPeriod(t_start)
+        except MotionError:
+            raise
+        except Exception as e:
+            raise MotionError(f"Interruptible move failed: {e}")
+        finally:
+            try:
+                with _suppress_rtde_stderr():
+                    self._rtde_c.speedStop()
+            except Exception:
+                pass
 
     def move_until_contact(
         self,

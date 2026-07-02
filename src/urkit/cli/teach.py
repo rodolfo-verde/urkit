@@ -622,7 +622,11 @@ def _filter_select_points(
 def _submenu_goto_point(
     robot: URRobot, state: dict, messages: list[str], expert_mode: bool = False
 ) -> None:
-    """Go to a saved point using the current Go To mode."""
+    """Go to a saved point using the current Go To mode.
+
+    Uses an interruptible control loop so Ctrl+C aborts the move and
+    returns to the menu (instead of killing the program).
+    """
     try:
         point_names = robot.point_names()
         if not point_names:
@@ -647,12 +651,17 @@ def _submenu_goto_point(
             return
 
         is_cartesian = state["goto_mode"] == "cartesian"
-        if expert_mode:
-            robot.move_to(name, linear=is_cartesian)
-        else:
-            robot.move_to(name, linear=is_cartesian, vel=0.125, acc=0.1)
-        mode_label = "cartesian" if is_cartesian else "joint"
-        messages.append(f"Moved to '{name}' ({mode_label})")
+        try:
+            if expert_mode:
+                robot.interruptible_move_to(name, linear=is_cartesian)
+            else:
+                robot.interruptible_move_to(name, linear=is_cartesian, vel=0.125, acc=0.1)
+            mode_label = "cartesian" if is_cartesian else "joint"
+            messages.append(f"Moved to '{name}' ({mode_label})")
+        except KeyboardInterrupt:
+            # Ctrl+C aborts the move — robot stops via speedStop in finally
+            messages.append("Aborted")
+            return
     except URKitConnectionError:
         raise
     except Exception as e:
