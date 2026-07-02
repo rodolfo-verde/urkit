@@ -622,11 +622,7 @@ def _filter_select_points(
 def _submenu_goto_point(
     robot: URRobot, state: dict, messages: list[str], expert_mode: bool = False
 ) -> None:
-    """Go to a saved point using the current Go To mode.
-
-    ESC cancels the move and returns to menu. Ctrl+C stops the robot
-    and exits the program (handled by SIGINT handler).
-    """
+    """Go to a saved point using the current Go To mode."""
     try:
         point_names = robot.point_names()
         if not point_names:
@@ -651,46 +647,12 @@ def _submenu_goto_point(
             return
 
         is_cartesian = state["goto_mode"] == "cartesian"
-
-        # Cancel flag — ESC sets this, move loop checks it
-        cancel = False
-
-        def _esc_monitor():
-            """Background thread to detect ESC during move."""
-            import select
-            import termios
-            fd = sys.stdin.fileno()
-            old = termios.tcgetattr(fd)
-            try:
-                tty.setcbreak(fd)
-                while not cancel:
-                    r, _, _ = select.select([sys.stdin], [], [], 0.1)
-                    if r:
-                        key = sys.stdin.read(1)
-                        if key == "\x1b":  # ESC
-                            cancel = True
-                            break
-            finally:
-                termios.tcsetattr(fd, termios.TCSADRAIN, old)
-
-        import threading
-        monitor = threading.Thread(target=_esc_monitor, daemon=True)
-        monitor.start()
-
-        try:
-            if expert_mode:
-                robot.interruptible_move_to(name, linear=is_cartesian, cancel_flag=cancel)
-            else:
-                robot.interruptible_move_to(name, linear=is_cartesian, vel=0.125, acc=0.1, cancel_flag=cancel)
-            mode_label = "cartesian" if is_cartesian else "joint"
-            messages.append(f"Moved to '{name}' ({mode_label})")
-        except KeyboardInterrupt:
-            # Ctrl+C: SIGINT handler will exit the program
-            raise
-        except Exception:
-            pass
-        finally:
-            monitor.join(timeout=1.0)
+        if expert_mode:
+            robot.move_to(name, linear=is_cartesian)
+        else:
+            robot.move_to(name, linear=is_cartesian, vel=0.125, acc=0.1)
+        mode_label = "cartesian" if is_cartesian else "joint"
+        messages.append(f"Moved to '{name}' ({mode_label})")
     except URKitConnectionError:
         raise
     except Exception as e:
