@@ -900,6 +900,65 @@ class URRobot:
             )
             raise MotionError(f"Move to {target_label} failed: {e}")
 
+    def interruptible_move_to(
+        self,
+        target: str | list[float],
+        *,
+        linear: bool = True,
+        offset: list[float] | None = None,
+        frame: MoveFrame | None = None,
+        vel: float | None = None,
+        acc: float | None = None,
+        cancel_flag: bool | None = None,
+    ) -> None:
+        """Move to a point using an interruptible control loop.
+
+        Like ``move_to`` but runs a 500 Hz control loop that can be
+        interrupted via ``KeyboardInterrupt`` (Ctrl+C) or a cancel flag.
+        The robot approaches the target using proportional control and
+        stops when within 1mm.
+
+        Args:
+            target: A saved point name (str) or a raw TCP pose.
+            linear: If True (default), use Cartesian linear move.
+            offset: Optional offset applied to the target pose.
+            frame: Coordinate frame for the offset.
+            vel: Velocity override. Falls back to default_vel.
+            acc: Acceleration override. Falls back to default_acc.
+            cancel_flag: Mutable boolean — set to True to abort the move.
+
+        Raises:
+            MotionError: If the move fails.
+            PointError: If the named point is not found.
+
+        Example:
+            >>> cancel = False
+            >>> robot.interruptible_move_to("home", cancel_flag=cancel)
+        """
+        self._check_connection()
+        self._disable_freedrive_guard()
+
+        point = self._lookup_point(target)
+
+        if offset is not None:
+            if len(offset) != 6:
+                raise PointError(
+                    f"Offset must have 6 values [dx, dy, dz, drx, dry, drz], "
+                    f"got {len(offset)}."
+                )
+            point = point.with_offset(offset, frame=frame or self._move_frame)
+
+        pose = list(point.pose)
+
+        vel = vel if vel is not None else self._default_vel
+        acc = acc if acc is not None else self._default_acc
+
+        if linear:
+            self._motion.move_to_interruptible(pose, vel=vel, acc=acc, cancel_flag=cancel_flag)
+        else:
+            joints = self.inverse_kinematics(pose)
+            self._motion.movej(joints, vel=vel, acc=acc)
+
     def move_relative(
         self,
         delta: list[float],
