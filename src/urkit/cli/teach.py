@@ -4,9 +4,9 @@ A single terminal-based UI for manual robot control, point management,
 and freedrive — matching the pattern from robot_mover's point_saver.cpp.
 
 Usage:
-    urkit 172.31.1.42                  # connect with IP
+    urkit 192.168.1.50                  # connect with IP
     urkit                                # reads robot_ip from config
-    urkit -v 172.31.1.42               # verbose (debug boot commands)
+    urkit -v 192.168.1.50               # verbose (debug boot commands)
 """
 
 from __future__ import annotations
@@ -1406,7 +1406,7 @@ def teach_command(args) -> None:
 
     if not ip:
         print("Error: No robot IP specified.")
-        print("  Usage: urkit 172.31.1.42")
+        print("  Usage: urkit 192.168.1.50")
         print("  Or:    urkit (uses last-used IP from config)")
         print(f"  Config: {_resolve_default_config_path()}")
         sys.exit(1)
@@ -1414,7 +1414,7 @@ def teach_command(args) -> None:
     # Validate IP format before any connection attempt
     if not _validate_ip(ip):  # type: ignore
         print(f"Error: \"{ip}\" is not a valid IPv4 address.")
-        print("  Usage: urkit 172.31.1.42")
+        print("  Usage: urkit 192.168.1.50")
         sys.exit(1)
 
     # Quick ping check to verify reachability

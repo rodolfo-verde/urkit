@@ -10,7 +10,7 @@ Quick start::
     from urkit import URRobot, ROBOTIQ_HAND_E
 
     robot = URRobot(
-        ip="172.31.1.42",
+        ip="192.168.1.50",
         points="points.db",
         gripper=ROBOTIQ_HAND_E,
     )

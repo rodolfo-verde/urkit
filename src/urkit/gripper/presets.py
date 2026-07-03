@@ -10,12 +10,12 @@ Usage::
     from urkit.gripper.presets import ROBOTIQ_2F_85
 
     # One arg — specs + backend
-    robot = URRobot(ip="172.31.1.42", gripper=ROBOTIQ_2F_85)
+    robot = URRobot(ip="192.168.1.50", gripper=ROBOTIQ_2F_85)
 
     # Digital I/O gripper
     from urkit.gripper.presets import DigitalGripperConfig
 
-    robot = URRobot(ip="172.31.1.42", gripper=DigitalGripperConfig(pin=3))
+    robot = URRobot(ip="192.168.1.50", gripper=DigitalGripperConfig(pin=3))
 """
 
 from __future__ import annotations

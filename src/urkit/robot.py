@@ -87,7 +87,7 @@ class URRobot:
 
     Example:
         >>> from urkit import URRobot, ROBOTIQ_2F_85
-        >>> robot = URRobot(ip="172.31.1.42", gripper=ROBOTIQ_2F_85)
+        >>> robot = URRobot(ip="192.168.1.50", gripper=ROBOTIQ_2F_85)
         >>> robot.move_relative([0.01, 0, 0, 0, 0, 0])  # works without points
         >>> robot.points_db = "points.db"  # set lazily
         >>> robot.save_point("home")
@@ -322,7 +322,7 @@ class URRobot:
 
         Config file keys::
 
-            robot_ip: 172.31.1.42
+            robot_ip: 192.168.1.50
             points_path: points.db
             gripper: hand-e
             gripper_config:
@@ -335,7 +335,7 @@ class URRobot:
         Example:
             >>> robot = URRobot.from_config("config.yaml")
             >>> robot = URRobot.from_config("config.yaml", ip="10.0.0.50")
-            >>> robot = URRobot.from_config({"robot_ip": "172.31.1.42", "points_path": "points.db", "gripper": "2f-85"})
+            >>> robot = URRobot.from_config({"robot_ip": "192.168.1.50", "points_path": "points.db", "gripper": "2f-85"})
         """
         from urkit.config import resolve_config
 

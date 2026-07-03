@@ -43,9 +43,9 @@ Requires Python 3.8+ and a Universal Robots e-Series (UR3e to UR30).
 ### Robot Setup (one-time)
 
 1. **Network**: `☰` → `System` → `System` → `Network`. Set a static IP on the robot and a matching one on your PC. Both addresses must share the same first three octets (the network), with a different last octet (the host). For example:
-   - **Robot**: `172.31.1.42` / Subnet `255.255.255.0`
-   - **PC**: `172.31.1.1` / Netmask `255.255.255.0`
-   - Verify with `ping 172.31.1.42`. Connect via direct Ethernet cable or a switch.
+   - **Robot**: `192.168.1.50` / Subnet `255.255.255.0`
+   - **PC**: `192.168.1.1` / Netmask `255.255.255.0`
+   - Verify with `ping 192.168.1.50`. Connect via direct Ethernet cable or a switch.
 2. **Remote Control**: `☰` → `System` → `Remote Control`: Enable. Press the remote/local button on the pendant.
 3. **Security**: `☰` → `Security` → `Services`: enable RTDE and disable EtherNet/IP, PROFINET, or MODBUS if they're claiming RTDE registers. Save and restart.
 
@@ -58,7 +58,7 @@ If you have a Robotiq gripper, install the **Robotiq Gripper Control** URCap fir
 ```python
 from urkit import URRobot, ROBOTIQ_HAND_E  # or ROBOTIQ_2F_85, ROBOTIQ_2F_140, or gripper=None
 
-robot = URRobot(ip="172.31.1.42", points="points.db", gripper=ROBOTIQ_HAND_E)
+robot = URRobot(ip="192.168.1.50", points="points.db", gripper=ROBOTIQ_HAND_E)
 robot.gripper.activate()
 
 robot.move_to("home")
@@ -85,7 +85,7 @@ URKit provides two CLI tools: **teach** for interactive robot control, and **poi
 The interactive teach pendant for moving the robot, saving points, and checking telemetry:
 
 ```bash
-urkit teach 172.31.1.42              # with robot IP
+urkit teach 192.168.1.50             # with robot IP
 urkit teach                          # reads IP from config.yaml
 ```
 
@@ -231,7 +231,7 @@ Delta movements (W/S/A/D/Q/E) use step-size-based velocities that scale with the
 To disable the slow default and use full speed, pass `--expert` or set `expert_mode: true` in your config:
 
 ```bash
-urkit teach 172.31.1.42 --expert
+urkit teach 192.168.1.50 --expert
 ```
 
 ```yaml
@@ -248,14 +248,14 @@ expert_mode: true
 ```python
 from urkit import URRobot, ROBOTIQ_HAND_E
 
-robot = URRobot(ip="172.31.1.42", points="points.db", gripper=ROBOTIQ_HAND_E)
+robot = URRobot(ip="192.168.1.50", points="points.db", gripper=ROBOTIQ_HAND_E)
 ```
 
 With custom motion defaults:
 
 ```python
 robot = URRobot(
-    ip="172.31.1.42",
+    ip="192.168.1.50",
     points="points.db",
     gripper=ROBOTIQ_HAND_E,
     default_vel=0.5,    # m/s
@@ -295,7 +295,7 @@ robot.gripper.set_speed(80)           # movement speed: 0-100 (Robotiq only)
 Override preset values for custom fingers:
 
 ```python
-robot = URRobot(ip="172.31.1.42", points="points.db", gripper=ROBOTIQ_HAND_E, max_mm=120)
+robot = URRobot(ip="192.168.1.50", points="points.db", gripper=ROBOTIQ_HAND_E, max_mm=120)
 ```
 
 #### Digital I/O Grippers
@@ -306,7 +306,7 @@ Robotiq grippers use a serial protocol over the robot's RS485 port. If you have 
 from urkit import URRobot, DigitalGripperConfig
 
 robot = URRobot(
-    ip="172.31.1.42",
+    ip="192.168.1.50",
     points="points.db",
     gripper=DigitalGripperConfig(pin=3),  # pin 3 goes high = close
 )
@@ -322,7 +322,7 @@ robot.gripper.close()   # turn pin 3 on
 The points database is optional. Create a robot without one and attach later:
 
 ```python
-robot = URRobot(ip="172.31.1.42")
+robot = URRobot(ip="192.168.1.50")
 robot.points_db = "points.db"
 ```
 
@@ -526,7 +526,7 @@ URKit searches for `config.yaml` in this order:
 
 | Key | Description | Example |
 |-----|-------------|---------|
-| `robot_ip` | Robot IP address | `172.31.1.42` |
+| `robot_ip` | Robot IP address | `192.168.1.50` |
 | `points_path` | Path to SQLite points database | `points.db` |
 | `gripper` | Gripper preset name | `hand-e`, `2f-85`, `2f-140`, `digital` |
 | `default_vel` | Default linear velocity (m/s) | `0.5` |
@@ -551,7 +551,7 @@ gripper_config:
 
 ### CLI Override Precedence
 
-1. **CLI flags.** `urkit teach 172.31.1.42 --gripper none`
+1. **CLI flags.** `urkit teach 192.168.1.50 --gripper none`
 2. **Config file.** Values from `config.yaml`
 3. **Built-in defaults.** `points.db`, no gripper, 0.5 m/s velocity
 
@@ -560,7 +560,7 @@ gripper_config:
 The CLI **never** modifies your config file automatically. Press **Y** inside the teach pendant to save. This way you only save settings you've actually tested.
 
 ```bash
-urkit teach 172.31.1.42 --gripper hand-e  # test, then press Y
+urkit teach 192.168.1.50 --gripper hand-e  # test, then press Y
 urkit teach                               # next time: reads from config
 ```
 
@@ -579,7 +579,7 @@ from urkit import load_config, resolve_config
 config = load_config()                          # auto-resolve
 config = load_config("/path/to/my.yaml")        # explicit path
 path = resolve_config()                         # returns Path or None
-robot = URRobot.from_config({"robot_ip": "172.31.1.42", "gripper": "2f-85"})
+robot = URRobot.from_config({"robot_ip": "192.168.1.50", "gripper": "2f-85"})
 ```
 
 ---
@@ -613,7 +613,7 @@ robot.reconnect_rtde()      # reconnect after a drop
 from urkit import URKitError, MotionError, PointError
 
 try:
-    robot = URRobot(ip="172.31.1.42", points="points.db")
+    robot = URRobot(ip="192.168.1.50", points="points.db")
 except RobotNotInRemoteModeError:
     print("Enable remote control on the teach pendant!")
 except RtdeRegisterConflictError:

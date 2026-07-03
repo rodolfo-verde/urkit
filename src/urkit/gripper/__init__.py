@@ -7,10 +7,10 @@ Usage::
     from urkit import URRobot, ROBOTIQ_2F_85, DigitalGripperConfig
 
     # Robotiq preset — one arg does everything
-    robot = URRobot(ip="172.31.1.42", gripper=ROBOTIQ_2F_85)
+    robot = URRobot(ip="192.168.1.50", gripper=ROBOTIQ_2F_85)
 
     # Digital I/O gripper
-    robot = URRobot(ip="172.31.1.42", gripper=DigitalGripperConfig(pin=3))
+    robot = URRobot(ip="192.168.1.50", gripper=DigitalGripperConfig(pin=3))
 """
 
 from urkit.gripper.base import Gripper

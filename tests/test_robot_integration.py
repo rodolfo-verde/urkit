@@ -1,7 +1,7 @@
 """Integration tests against a real Universal Robot.
 
 Set ROBOT_IP environment variable to run:
-    ROBOT_IP=172.31.1.42 PYTHONPATH= .venv/bin/python -m pytest tests/test_robot_integration.py -v
+    ROBOT_IP=192.168.1.50 PYTHONPATH= .venv/bin/python -m pytest tests/test_robot_integration.py -v
 
 Tests are skipped automatically if ROBOT_IP is not set or the robot
 is unreachable. All tests are designed to be safe — read-only telemetry
