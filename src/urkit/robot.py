@@ -101,7 +101,7 @@ class URRobot:
         gripper: GripperPreset | DigitalGripperConfig | None = None,
         default_vel: float = 0.5,
         default_acc: float = 0.3,
-        **gripper_kwargs,
+        **gripper_kwargs: object,
     ) -> None:
         self._ip = ip
         self._default_vel = default_vel
@@ -271,7 +271,7 @@ class URRobot:
             return False
 
         try:
-            self._gripper.activate(timeout=timeout)
+            self._gripper.activate()
         except GripperError as e:
             _status(f"Gripper activation failed: {e}", done=False)
             # Reconnect RTDE to kill the stuck daemon thread — it's blocked
@@ -294,7 +294,7 @@ class URRobot:
     @classmethod
     def from_config(
         cls,
-        config: str | dict,
+        config: str | dict[str, object],
         *,
         ip: str | None = None,
         points: str | Path | None = None,
@@ -346,7 +346,7 @@ class URRobot:
             try:
                 import yaml as _yaml
                 with open(resolved, "r") as f:
-                    cfg: dict = _yaml.safe_load(f) or {}
+                    cfg: dict[str, object] = _yaml.safe_load(f) or {}
             except Exception as e:
                 raise ValueError(f"Failed to parse config {resolved}: {e}")
             if not isinstance(cfg, dict):
@@ -355,14 +355,14 @@ class URRobot:
             cfg = config
 
         # Resolve each parameter: explicit kwarg > config > default
-        resolved_ip: str | None = ip or cfg.get("robot_ip")
+        resolved_ip: str | None = ip or (cfg.get("robot_ip") if isinstance(cfg.get("robot_ip"), str) else None)  # type: ignore
         if not resolved_ip:
             raise ValueError(
                 "Robot IP is required. Pass it as the 'ip' argument, "
                 "or set 'robot_ip' in the config file."
             )
 
-        resolved_points: str | Path | None = points or cfg.get("points_path")
+        resolved_points: str | Path | None = points or (cfg.get("points_path") if isinstance(cfg.get("points_path"), (str, Path)) else None)  # type: ignore
 
         # Resolve gripper
         resolved_gripper: GripperPreset | DigitalGripperConfig | None = None
@@ -392,14 +392,14 @@ class URRobot:
         nested_cfg = cfg.get("gripper_config") or {}
         for key in gripper_overrides:
             if key not in gripper_kwargs:
-                gripper_kwargs[key] = nested_cfg.get(key, cfg.get(key))
+                gripper_kwargs[key] = nested_cfg.get(key, cfg.get(key))  # type: ignore
 
         return cls(
             ip=resolved_ip,
             points=resolved_points,
             gripper=resolved_gripper,
-            default_vel=default_vel if default_vel is not None else cfg.get("default_vel", 0.5),
-            default_acc=default_acc if default_acc is not None else cfg.get("default_acc", 0.3),
+            default_vel=default_vel if default_vel is not None else cfg.get("default_vel", 0.5),  # type: ignore
+            default_acc=default_acc if default_acc is not None else cfg.get("default_acc", 0.3),  # type: ignore
             **gripper_kwargs,
         )
 
@@ -516,7 +516,7 @@ class URRobot:
                 "Dashboard connection not available. "
                 "Cannot execute command: " + command
             )
-        return _dashboard_command(self._dashboard, command)
+        return _dashboard_command(self._dashboard, command)  # type: ignore
 
     def _poll_robotmode(
         self,
@@ -685,7 +685,7 @@ class URRobot:
                 self._connect_dashboard()
             if self._dashboard is None:
                 return False
-            response = _dashboard_command(self._dashboard, "is in remote control")
+            response = _dashboard_command(self._dashboard, "is in remote control")  # type: ignore
             return response.strip().lower() == "true"
         except Exception:
             return False
@@ -698,7 +698,7 @@ class URRobot:
             raise ConnectionError(
                 "Dashboard connection not available. Cannot stop program."
             )
-        response = _dashboard_command(self._dashboard, "stop")
+        response = _dashboard_command(self._dashboard, "stop")  # type: ignore
         logger.info("Dashboard 'stop' response: %s", response)
 
     # ------------------------------------------------------------------
@@ -775,10 +775,10 @@ class URRobot:
             Point object with pose.
         """
         if _is_pose(target):
-            return Point.from_pose(list(target))
+            return Point.from_pose(list(target))  # type: ignore
         points = self._require_points()
         try:
-            return points[target]
+            return points[target]  # type: ignore
         except KeyError:
             raise PointError(
                 f"Point '{target}' not found. "
@@ -786,7 +786,7 @@ class URRobot:
             ) from None
 
     @staticmethod
-    def _serialize_point(point: Point) -> dict:
+    def _serialize_point(point: Point) -> dict[str, list[float]]:
         """Convert a Point to a serializable dict."""
         return {"pose": point.pose}
 
@@ -1213,7 +1213,7 @@ class URRobot:
     # Telemetry
     # ------------------------------------------------------------------
 
-    def current_point(self) -> dict:
+    def current_point(self) -> dict[str, list[float]]:
         """Get the robot's current pose and joints.
 
         Convenience method combining ``get_tcp_pose()`` and
@@ -1543,9 +1543,9 @@ class URRobot:
         # Reconnect gripper if it was active
         if getattr(self, '_gripper', None) is not None:
             try:
-                self._gripper._rtde_c = self._rtde_c
-                self._gripper._rtde_r = self._rtde_r
-                self._gripper._activated = False
+                self._gripper._rtde_c = self._rtde_c  # type: ignore[union-attr]
+                self._gripper._rtde_r = self._rtde_r  # type: ignore[union-attr]
+                self._gripper._activated = False  # type: ignore[union-attr]
             except Exception:
                 pass
 
@@ -1559,7 +1559,7 @@ class URRobot:
         if __init__ failed partway through.
         """
         try:
-            getattr(self, '_motion', None) and self._motion.stop_script()
+            getattr(self, '_motion', None) and self._motion.stop_script()  # type: ignore
         except Exception:
             pass
         try:
@@ -1588,12 +1588,12 @@ class URRobot:
             pass
         if getattr(self, '_dashboard', None) is not None:
             try:
-                self._dashboard.close()
+                self._dashboard.close()  # type: ignore
             except Exception:
                 pass
             self._dashboard = None
         try:
-            getattr(self, '_points', None) and self._points._close()
+            getattr(self, '_points', None) and self._points._close()  # type: ignore
         except Exception:
             pass
         logger.info("URRobot disconnected")

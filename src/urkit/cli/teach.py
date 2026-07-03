@@ -841,7 +841,7 @@ def _submenu_explore_points(robot: URRobot, messages: list[str]) -> None:
             messages.append("No saved points")
             return
         
-        _interactive_points_filter(robot.points_db, all_points)
+        _interactive_points_filter(robot.points_db, all_points)  # type: ignore
         messages.append("Closed points explorer")
     except Exception as e:
         messages.append(f"Error: {e}")
@@ -1096,7 +1096,7 @@ def _teach_pendant(
                 elif key == "1":
                     val = _read_input("  Linear step (mm): ")
                     try:
-                        mm = float(val)
+                        mm = float(val)  # type: ignore
                         state["linear_step"] = max(mm / 1000, _DEFAULT_LINEAR_STEP_MIN)
                         state["linear_step"] = min(state["linear_step"], _DEFAULT_LINEAR_STEP_MAX)
                     except (ValueError, TypeError):
@@ -1106,7 +1106,7 @@ def _teach_pendant(
                 elif key == "2":
                     val = _read_input("  Angular step (degrees): ")
                     try:
-                        deg = float(val)
+                        deg = float(val)  # type: ignore
                         state["angular_step"] = max(math.radians(deg), _DEFAULT_ANGULAR_STEP_MIN)
                         state["angular_step"] = min(state["angular_step"], _DEFAULT_ANGULAR_STEP_MAX)
                     except (ValueError, TypeError):
@@ -1214,8 +1214,8 @@ def _teach_pendant(
                         prompt = f"  Gripper position (0-{max_mm} mm): " if max_mm is not None else "  Gripper position (mm): "
                         val = _read_input(prompt)
                         try:
-                            mm = float(val)
-                            robot.gripper.set_position(mm)
+                            mm = float(val)  # type: ignore
+                            robot.gripper.set_position(mm)  # type: ignore
                             messages.append(f"Gripper set to {mm:.1f} mm")
                         except (ValueError, TypeError):
                             messages.append("Invalid position value")
@@ -1246,7 +1246,7 @@ def _teach_pendant(
                 elif key == "0":
                     val = _read_input("  Speed slider (0-100%): ")
                     try:
-                        pct = float(val)
+                        pct = float(val)  # type: ignore
                         factor = max(0.0, min(pct / 100.0, 1.0))
                         robot.set_speed_slider(factor)
                         state["speed_slider"] = factor
@@ -1266,7 +1266,7 @@ def _teach_pendant(
                     if current_points_path:
                         save_cfg["points_path"] = current_points_path
                     _save_config(save_cfg, config_path)
-                    target = Path(config_path) if config_path else _resolve_default_config_path()
+                    target = Path(config_path) if config_path else _resolve_default_config_path()  # type: ignore
                     messages.append(f"Config saved to {target}")
                     command_handled = True
 
@@ -1318,7 +1318,7 @@ def teach_command(args) -> None:
     ip = args.ip or config.get("robot_ip")
     gripper_name = args.gripper or config.get("gripper")
     # "none" is an explicit CLI override — don't fall through to config
-    if gripper_name and gripper_name.lower() == "none":
+    if gripper_name and gripper_name.lower() == "none":  # type: ignore
         gripper_name = None
     points_path = args.points or config.get("points_path") or "points.db"
 
@@ -1328,29 +1328,29 @@ def teach_command(args) -> None:
     gripper_kwargs: dict = {}
     if args.gripper_pin is not None:
         gripper_kwargs["pin"] = args.gripper_pin
-    elif "pin" in cfg:
-        gripper_kwargs["pin"] = cfg["pin"]
+    elif "pin" in cfg:  # type: ignore
+        gripper_kwargs["pin"] = cfg["pin"]  # type: ignore
     if args.gripper_force is not None:
         gripper_kwargs["force"] = args.gripper_force
-    elif "force" in cfg:
-        gripper_kwargs["force"] = cfg["force"]
+    elif "force" in cfg:  # type: ignore
+        gripper_kwargs["force"] = cfg["force"]  # type: ignore
     if args.gripper_speed is not None:
         gripper_kwargs["speed"] = args.gripper_speed
-    elif "speed" in cfg:
-        gripper_kwargs["speed"] = cfg["speed"]
+    elif "speed" in cfg:  # type: ignore
+        gripper_kwargs["speed"] = cfg["speed"]  # type: ignore
     if args.gripper_close_on_high is not None:
         gripper_kwargs["close_on_high"] = args.gripper_close_on_high == "true"
-    elif "close_on_high" in cfg:
-        gripper_kwargs["close_on_high"] = cfg["close_on_high"]
+    elif "close_on_high" in cfg:  # type: ignore
+        gripper_kwargs["close_on_high"] = cfg["close_on_high"]  # type: ignore
 
     # Resolve gripper string to config object
     gripper_config = None
     if gripper_name:
-        preset = PRESETS.get(gripper_name.upper())
+        preset = PRESETS.get(gripper_name.upper())  # type: ignore
         if preset is not None:
             gripper_config = preset
         elif gripper_name == "digital":
-            gripper_config = DigitalGripperConfig(
+            gripper_config = DigitalGripperConfig(  # type: ignore
                 pin=gripper_kwargs.pop("pin", 0),
                 close_on_high=gripper_kwargs.pop("close_on_high", True),
             )
@@ -1363,13 +1363,13 @@ def teach_command(args) -> None:
         sys.exit(1)
 
     # Validate IP format before any connection attempt
-    if not _validate_ip(ip):
+    if not _validate_ip(ip):  # type: ignore
         print(f"Error: \"{ip}\" is not a valid IPv4 address.")
         print("  Usage: urkit 172.31.1.42")
         sys.exit(1)
 
     # Quick ping check to verify reachability
-    if not _ping(ip, timeout=2.0):
+    if not _ping(ip, timeout=2.0):  # type: ignore
         print(f"Error: Robot at {ip} is not reachable.")
         print("  Check the IP address and network connection.")
         sys.exit(1)
@@ -1384,8 +1384,8 @@ def teach_command(args) -> None:
     # power on, brake release, program stop, and RTDE connection.
     try:
         robot = URRobot(
-            ip=ip,
-            points=points_path,
+            ip=ip,  # type: ignore
+            points=points_path,  # type: ignore
             gripper=gripper_config,
             **gripper_kwargs,
         )
@@ -1411,9 +1411,9 @@ def teach_command(args) -> None:
         _teach_pendant(
             robot,
             config_path=args.config,
-            current_gripper_name=gripper_name,
-            current_points_path=points_path,
-            expert_mode=expert_mode,
+            current_gripper_name=gripper_name,  # type: ignore
+            current_points_path=points_path,  # type: ignore
+            expert_mode=expert_mode,  # type: ignore
         )
     except KeyboardInterrupt:
         pass

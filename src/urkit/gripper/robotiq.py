@@ -57,7 +57,9 @@ class RobotiqGripper(Gripper):
         max_mm: int = 50,
         force: int = 100,
         speed: int = 100,
-        **kwargs,  # rtde_receive, robot_ip passed by factory but not used
+        pin: int = 0,
+        close_on_high: bool = True,
+        **kwargs: object,  # rtde_receive, robot_ip passed by factory but not used
     ) -> None:
         if rtde_control is None:
             raise GripperError(
@@ -110,7 +112,7 @@ class RobotiqGripper(Gripper):
         """
         return (
             ROBOTIQ_PREAMBLE
-            + f"set_closed_mm(0.0, 1)\n"
+            + "set_closed_mm(0.0, 1)\n"
             + f"set_open_mm({self._max_mm}.0, 1)\n"
             + f"{function_call}\n"
         )
@@ -166,7 +168,7 @@ class RobotiqGripper(Gripper):
         # reports activated (~3-5s for internal initialization).
         activation_script = (
             ROBOTIQ_PREAMBLE
-            + f"set_closed_mm(0.0, 1)\n"
+            + "set_closed_mm(0.0, 1)\n"
             + f"set_open_mm({self._max_mm}.0, 1)\n"
             + "if (not rq_is_gripper_activated()):\n"
             + "    rq_activate_and_wait()\n"
@@ -178,6 +180,7 @@ class RobotiqGripper(Gripper):
         _err: Exception | None = None
 
         def _do_activate() -> None:
+            nonlocal _err
             try:
                 self._send_script(activation_script)
             except Exception as e:

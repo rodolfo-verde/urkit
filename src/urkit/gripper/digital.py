@@ -50,7 +50,7 @@ class DigitalGripper(Gripper):
         rtde_receive: "RTDEReceiveInterface",
         pin: int = 0,
         closed_when_high: bool = True,
-        **kwargs,  # robot_ip passed by factory but not used
+        **kwargs: object,  # robot_ip passed by factory but not used
     ) -> None:
         self._rtde_c = rtde_control
         self._rtde_r = rtde_receive

@@ -6,6 +6,7 @@ import json
 import sqlite3
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Literal
 
 from urkit.exceptions import PointError
 from urkit.geometry import MoveFrame, transform_pose_delta
@@ -95,7 +96,7 @@ def _serialize(v: list[float]) -> str:
 
 
 def _deserialize(s: str) -> list[float]:
-    return json.loads(s)
+    return json.loads(s)  # type: ignore[no-any-return]
 
 
 class Points:
@@ -128,7 +129,7 @@ class Points:
     def __enter__(self) -> Points:
         return self
 
-    def __exit__(self, exc_type, exc_val, exc_tb) -> bool:
+    def __exit__(self, exc_type: object, exc_val: object, exc_tb: object) -> Literal[False]:
         self._close()
         return False
 

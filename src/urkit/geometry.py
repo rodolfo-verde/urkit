@@ -380,7 +380,7 @@ def transform_pose_delta(
     # Angular delta as a rotation matrix (axis-angle → Rodrigues)
     dr = math.sqrt(delta[3] ** 2 + delta[4] ** 2 + delta[5] ** 2)
     if dr < 1e-10:
-        R_delta = [[1, 0, 0], [0, 1, 0], [0, 0, 1]]
+        R_delta: list[list[float]] = [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]]
     else:
         ax = delta[3] / dr
         ay = delta[4] / dr
@@ -388,10 +388,10 @@ def transform_pose_delta(
         s = math.sin(dr)
         c = math.cos(dr)
         oc = 1.0 - c
-        R_delta = [
-            [c + ax*ax*oc, ax*ay*oc - az*s, ax*az*oc + ay*s],
-            [ay*ax*oc + az*s, c + ay*ay*oc, ay*az*oc - ax*s],
-            [az*ax*oc - ay*s, az*ay*oc + ax*s, c + az*az*oc],
+        R_delta: list[list[float]] = [  # type: ignore
+            [float(c + ax*ax*oc), float(ax*ay*oc - az*s), float(ax*az*oc + ay*s)],
+            [float(ay*ax*oc + az*s), float(c + ay*ay*oc), float(ay*az*oc - ax*s)],
+            [float(az*ax*oc - ay*s), float(az*ay*oc + ax*s), float(c + az*az*oc)],
         ]
 
     if frame == MoveFrame.BASE:

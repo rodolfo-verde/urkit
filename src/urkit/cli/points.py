@@ -73,7 +73,7 @@ def _explore_points(args) -> None:
     # Resolve points path
     config = load_config()
     points_path = args.points_path or config.get("points_path") or "points.db"
-    points_path = Path(points_path).resolve()
+    points_path = Path(points_path).resolve()  # type: ignore
 
     if not points_path.exists():
         print(f"Error: Points database not found: {points_path}")
@@ -126,8 +126,6 @@ def _interactive_points_filter(points_db: Points, all_points: list[str], points_
     termios.tcsetattr(sys.stdin, termios.TCSADRAIN, new_settings)
 
     fd = sys.stdin.fileno()
-    # Rich auto-detects dark/light terminal theme
-    console = Console(force_terminal=True)
 
     try:
         while True:

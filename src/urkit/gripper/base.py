@@ -67,7 +67,14 @@ class Gripper(ABC):
 
         No-op by default. Override in subclasses that support explicit
         deactivation (e.g., Robotiq grippers). Call activate() again
-        to re-enable the gripper.
+        to re-enable.
+        """
+
+    def disconnect(self) -> None:
+        """Disconnect the gripper.
+
+        No-op by default. Override in subclasses that need to close
+        sockets or release resources (e.g., Robotiq grippers).
         """
 
     def get_position_mm(self) -> float | None:
@@ -90,33 +97,15 @@ class Gripper(ABC):
         return None
 
     @classmethod
-    def create(cls, name: str, **kwargs) -> "Gripper":
-        """Factory method to create a gripper backend.
-
-        Args:
-            name: Backend name. Supported values:
-                  - ``"robotiq"`` — Robotiq 2F via URScript (secondary interface)
-                  - ``"digital"`` — Digital I/O gripper
-
-        Kwargs:
-            rtde_control: RTDEControlInterface (required for all backends).
-            pin: Digital output pin index (required for "digital" backend).
-            force: Gripper force 0–100 (Robotiq backend, default 100).
-            speed: Gripper speed 0–100 (Robotiq backend, default 100).
-
-        Returns:
-            A concrete Gripper instance.
-
-        Raises:
-            GripperError: If the backend name is unknown.
-        """
+    def create(cls, name: str, **kwargs: object) -> "Gripper":
+        """Factory method to create a gripper backend."""
         from urkit.gripper.robotiq import RobotiqGripper
         from urkit.gripper.digital import DigitalGripper
 
         if name == "robotiq":
-            return RobotiqGripper(**kwargs)
+            return RobotiqGripper(**kwargs)  # type: ignore[arg-type]
         elif name == "digital":
-            return DigitalGripper(**kwargs)
+            return DigitalGripper(**kwargs)  # type: ignore[arg-type]
         else:
             from urkit.exceptions import GripperError
 

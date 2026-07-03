@@ -56,7 +56,7 @@ def resolve_config(path: Path | str | None = None) -> Path | None:
     return None
 
 
-def load_config(path: Path | str | None = None) -> dict:
+def load_config(path: Path | str | None = None) -> dict[str, object]:
     """Load a YAML config file and return it as a dict.
 
     Returns ``{}`` if the file is not found, empty, or invalid.

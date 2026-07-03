@@ -13,6 +13,7 @@ import sys
 import time as _time
 from contextlib import contextmanager
 from enum import IntEnum
+from typing import Iterator
 from typing import TYPE_CHECKING
 
 from urkit.exceptions import MotionError
@@ -20,7 +21,7 @@ from urkit.geometry import MoveFrame, transform_pose_delta
 
 
 @contextmanager
-def _suppress_rtde_stderr():
+def _suppress_rtde_stderr() -> Iterator[None]:
     """Temporarily redirect stderr to /dev/null.
 
     The ur_rtde C++ library prints "RTDE control script is not running!"
