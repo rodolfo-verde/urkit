@@ -894,6 +894,8 @@ class URRobot:
 
         try:
             if linear:
+                if not self._rtde_c.getInverseKinematicsHasSolution(pose):
+                    raise MotionError(f"Pose unreachable: {pose}")
                 self._motion.movel(pose, vel=vel, acc=acc, asynchronous=asynchronous)
             else:
                 joints = self.inverse_kinematics(pose)
