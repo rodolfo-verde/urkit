@@ -26,6 +26,7 @@ Built on [`ur_rtde`](https://sdurobotics.gitlab.io/ur_rtde/), it packages the op
   - [Raw RTDE Access](#raw-rtde-access)
   - [Connection Lifecycle](#connection-lifecycle)
   - [Error Handling](#error-handling)
+- [Changelog](#changelog)
 
 ---
 
@@ -636,3 +637,20 @@ When the robot enters protective stop or the RTDE connection drops, motion comma
 ### Connection Notes
 
 The `URRobot` constructor takes a few seconds on first call: it validates the connection, checks remote mode, powers on the robot, releases brakes, and connects RTDE. Subsequent calls are faster if the robot is already running.
+
+---
+
+## Changelog
+
+See [CHANGELOG.md](CHANGELOG.md) for the full version history.
+
+### Recent Changes
+
+- **v3.2** — Gripper speed/force keys (6/7), force/speed display
+- **v3.1** — Async motion, Space cancel, progress bar, joint display
+- **v0.3.0** — Safe/expert mode, speed_stop on exit, safety features
+- **v0.2.1** — `get_pose()` method
+- **v0.2.0** — README restructure
+- **v0.1.1** — `--gripper none`, `--config` flag, save config on demand
+- **v0.1.0** — Initial release
+
