@@ -646,8 +646,8 @@ See [CHANGELOG.md](CHANGELOG.md) for the full version history.
 
 ### Recent Changes
 
-- **v3.2** — Gripper speed/force keys (6/7), force/speed display
-- **v3.1** — Async motion, Space cancel, progress bar, joint display
+- **v0.3.2** — Gripper speed/force keys (6/7), force/speed display
+- **v0.3.1** — Async motion, Space cancel, progress bar, joint display
 - **v0.3.0** — Safe/expert mode, speed_stop on exit, safety features
 - **v0.2.1** — `get_pose()` method
 - **v0.2.0** — README restructure
