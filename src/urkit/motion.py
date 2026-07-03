@@ -115,6 +115,7 @@ class Motion:
         joints: list[float],
         vel: float | None = None,
         acc: float | None = None,
+        asynchronous: bool = False,
     ) -> None:
         """Move to target joint configuration.
 
@@ -124,6 +125,8 @@ class Motion:
             joints: 6 joint angles in radians [j0, j1, j2, j3, j4, j5].
             vel: Linear velocity (m/s). Falls back to default_vel.
             acc: Linear acceleration (m/s²). Falls back to default_acc.
+            asynchronous: If True, move runs in background and method returns
+                immediately. Caller must poll or wait for completion. Default False.
 
         Raises:
             MotionError: If the move fails.
@@ -142,10 +145,10 @@ class Motion:
                     "Reconnect or reinitialize the robot."
                 )
             logger.debug(
-                "movej: joints=%s, vel=%.3f, acc=%.3f", joints, vel, acc
+                "movej: joints=%s, vel=%.3f, acc=%.3f, async=%s", joints, vel, acc, asynchronous
             )
             with _suppress_rtde_stderr():
-                self._rtde_c.moveJ(joints, vel, acc)
+                self._rtde_c.moveJ(joints, vel, acc, asynchronous=asynchronous)
         except MotionError:
             raise
         except Exception as e:
@@ -158,6 +161,7 @@ class Motion:
         pose: list[float],
         vel: float | None = None,
         acc: float | None = None,
+        asynchronous: bool = False,
     ) -> None:
         """Move in a straight line to target TCP pose.
 
@@ -167,6 +171,8 @@ class Motion:
             pose: 6 floats [x, y, z, rx, ry, rz] in meters/radians.
             vel: Linear velocity (m/s). Falls back to default_vel.
             acc: Linear acceleration (m/s²). Falls back to default_acc.
+            asynchronous: If True, move runs in background and method returns
+                immediately. Caller must poll or wait for completion. Default False.
 
         Raises:
             MotionError: If the move fails.
@@ -185,10 +191,10 @@ class Motion:
                     "Reconnect or reinitialize the robot."
                 )
             logger.debug(
-                "movel: pose=%s, vel=%.3f, acc=%.3f", pose, vel, acc
+                "movel: pose=%s, vel=%.3f, acc=%.3f, async=%s", pose, vel, acc, asynchronous
             )
             with _suppress_rtde_stderr():
-                self._rtde_c.moveL(pose, vel, acc)
+                self._rtde_c.moveL(pose, vel, acc, asynchronous=asynchronous)
         except MotionError:
             raise
         except Exception as e:

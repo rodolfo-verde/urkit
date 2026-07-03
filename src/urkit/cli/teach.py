@@ -35,18 +35,17 @@ from urkit.connection import (
     _ping,
 )
 from urkit.exceptions import (
-    GripperError,
     MotionError,
-    PointError,
     URKitConnectionError,
     URKitConnectionError as ConnectionError,
 )
 from urkit.geometry import MoveFrame, orient_tcp_down, transform_pose_delta
-from urkit.gripper.presets import DigitalGripperConfig, GripperPreset, PRESETS
+from urkit.gripper.presets import DigitalGripperConfig, PRESETS
 from urkit.motion import FreedriveMode
 from urkit.robot import URRobot
 
 logger = logging.getLogger(__name__)
+
 
 # Module-level monitor reference — set by _teach_pendant() so input helpers
 # (_filter_select_points, _read_input) can check for faults without threading
@@ -215,6 +214,70 @@ class _RawTerminal:
 # UI rendering
 # ------------------------------------------------------------------
 
+def _draw_moving_screen(
+    robot: URRobot,
+    name: str,
+    mode_label: str,
+    start_pose: list[float],
+    target_pose: list[float],
+    is_cartesian: bool,
+    max_progress: float = 0.0,
+) -> tuple[float, str]:
+    """Draw the dedicated screen shown while moving to a point.
+
+    Shows live TCP/joint data, progress bar, and cancel prompt.
+    Progress bar never goes down — gets stuck at 100% for a second or two.
+
+    Returns:
+        (new_max_progress, bar_string) — caller updates max_progress for next frame.
+    """
+    width = 72
+    try:
+        pose = robot.get_tcp_pose()
+        joints = robot.get_joint_positions()
+    except Exception:
+        pose = [0, 0, 0, 0, 0, 0]
+        joints = [0, 0, 0, 0, 0, 0]
+
+    # Compute progress (0.0–1.0)
+    if is_cartesian:
+        total = math.sqrt(sum((target_pose[i] - start_pose[i])**2 for i in range(3)))
+        done = math.sqrt(sum((pose[i] - start_pose[i])**2 for i in range(3)))
+    else:
+        # Joint-space progress via TCP position as proxy
+        total = math.sqrt(sum((target_pose[i] - start_pose[i])**2 for i in range(3)))
+        done = math.sqrt(sum((pose[i] - start_pose[i])**2 for i in range(3)))
+
+    raw_pct = min(done / total * 100, 100) if total > 1e-6 else 100.0
+    # Monotonic: never decrease — gets stuck at 100% when robot settles
+    pct = max(max_progress, raw_pct)
+
+    bar_width = 40
+    filled = int(bar_width * pct / 100)
+    bar = "█" * filled + "░" * (bar_width - filled)
+
+    sys.stdout.write("\033[2J\033[1;1H")
+    sys.stdout.write("\n".join([
+        dim("=" * width),
+        cyan(f"  === MOVING TO '{name}' ({mode_label}) ===").center(width),
+        dim("=" * width),
+        "",
+        f"  {blue('Position:')}  X={pose[0]:+.3f}  Y={pose[1]:+.3f}  Z={pose[2]:+.3f}",
+        f"  {blue('Orient:')}    R={math.degrees(pose[3]):+.1f}°  P={math.degrees(pose[4]):+.1f}°  Y={math.degrees(pose[5]):+.1f}°",
+        "",
+        f"  {blue('J1-J3:')}  J1={math.degrees(joints[0]):+6.1f}°  J2={math.degrees(joints[1]):+6.1f}°  J3={math.degrees(joints[2]):+6.1f}°",
+        f"  {blue('J4-J6:')}  J4={math.degrees(joints[3]):+6.1f}°  J5={math.degrees(joints[4]):+6.1f}°  J6={math.degrees(joints[5]):+6.1f}°",
+        "",
+        f"  [{bar}] {pct:.0f}%",
+        "",
+        yellow("  Press SPACE to cancel"),
+        "",
+        dim("=" * width),
+    ]))
+    sys.stdout.flush()
+    return pct, bar
+
+
 def _draw_screen(
     robot: URRobot,
     state: dict,
@@ -234,11 +297,9 @@ def _draw_screen(
     try:
         pose = robot.get_tcp_pose()
         joints = robot.get_joint_positions()
-        tcp_force = robot.get_tcp_force()
     except Exception:
         pose = [0, 0, 0, 0, 0, 0]
         joints = [0, 0, 0, 0, 0, 0]
-        tcp_force = [0, 0, 0, 0, 0, 0]
 
     gripper_state = "None"
     if robot.gripper:
@@ -254,7 +315,7 @@ def _draw_screen(
 
     # Header
     lines.append(dim("=" * width))
-    lines.append(cyan(f"  === URKit Teach Pendant ===").center(width))
+    lines.append(cyan("  === URKit Teach Pendant ===").center(width))
     lines.append(cyan(f"  IP: {robot.ip}").center(width))
     if expert_mode:
         lines.append(yellow("  EXPERT MODE").center(width))
@@ -622,7 +683,11 @@ def _filter_select_points(
 def _submenu_goto_point(
     robot: URRobot, state: dict, messages: list[str], expert_mode: bool = False
 ) -> None:
-    """Go to a saved point using the current Go To mode."""
+    """Go to a saved point using the current Go To mode.
+
+    ESC cancels the move and returns to menu. Ctrl+C stops the robot
+    and exits the program (handled by SIGINT handler).
+    """
     try:
         point_names = robot.point_names()
         if not point_names:
@@ -647,12 +712,44 @@ def _submenu_goto_point(
             return
 
         is_cartesian = state["goto_mode"] == "cartesian"
-        if expert_mode:
-            robot.move_to(name, linear=is_cartesian)
-        else:
-            robot.move_to(name, linear=is_cartesian, vel=0.125, acc=0.1)
         mode_label = "cartesian" if is_cartesian else "joint"
-        messages.append(f"Moved to '{name}' ({mode_label})")
+
+        # Capture start pose and resolve target before moving
+        start_pose = list(robot.get_tcp_pose())
+        target_pose = robot.get_pose(name)
+
+        # Move asynchronously
+        if expert_mode:
+            robot.move_to(name, linear=is_cartesian, asynchronous=True)
+        else:
+            robot.move_to(name, linear=is_cartesian, vel=0.125, acc=0.1, asynchronous=True)
+
+        # Small delay to let the move start
+        time.sleep(0.05)
+
+        # Show dedicated moving screen with monotonic progress
+        cancelled = False
+        max_progress = 0.0
+        while robot.is_moving():
+            pct, bar = _draw_moving_screen(
+                robot, name, mode_label, start_pose, target_pose, is_cartesian, max_progress
+            )
+            max_progress = pct
+            ready, _, _ = select.select([sys.stdin], [], [], 0.05)
+            if ready:
+                key = sys.stdin.read(1)
+                if key == " ":  # Space to cancel
+                    cancelled = True
+                    break
+
+        # Clear moving screen
+        sys.stdout.write("\033[2J\033[1;1H")
+
+        if cancelled:
+            robot.stop()
+            messages.append(f"Move to '{name}' cancelled")
+        else:
+            messages.append(f"Moved to '{name}' ({mode_label})")
     except URKitConnectionError:
         raise
     except Exception as e:
@@ -870,6 +967,10 @@ def _teach_pendant(
         except Exception:
             pass
         try:
+            robot.stop()
+        except Exception:
+            pass
+        try:
             robot.speed_stop()
         except Exception:
             pass
@@ -886,7 +987,8 @@ def _teach_pendant(
     monitor = ConnectionMonitor(robot)
     monitor.start()
     _old_sigalrm = signal.signal(signal.SIGALRM, monitor.alarm_handler)
-    _cli_monitor = monitor  # Global so input helpers can check for faults
+    global _cli_monitor
+    _cli_monitor = monitor  # used by _read_input and _filter_select_points
 
     try:
         try:
@@ -949,6 +1051,7 @@ def _teach_pendant(
                             state["freedrive"] = False
                         except Exception:
                             pass
+                    robot.stop()
                     robot.speed_stop()
                     break
 
@@ -1178,7 +1281,6 @@ def _teach_pendant(
             print(f"\n{red('Fault:')} {e}")
         finally:
             # Stop monitor and restore signal handler
-            _cli_monitor = None
             monitor.stop()
             signal.signal(signal.SIGALRM, _old_sigalrm)
 
@@ -1287,9 +1389,9 @@ def teach_command(args) -> None:
             gripper=gripper_config,
             **gripper_kwargs,
         )
-        print(f"  Connected.", flush=True)
+        print("  Connected.", flush=True)
         if robot.activate_gripper():
-            print(f"  Gripper activated.", flush=True)
+            print("  Gripper activated.", flush=True)
     except ConnectionError as e:
         print(f"Connection error: {e}")
         if "RTDE" in str(e):
@@ -1329,5 +1431,4 @@ def teach_command(args) -> None:
         robot.disconnect()
 
 
-if __name__ == "__main__":
-    main()
+

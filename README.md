@@ -169,7 +169,7 @@ All movement and orientation keys support **hold-to-repeat**.
       <table>
         <tr><th>Key</th><th>Action</th></tr>
         <tr><td><code>B</code></td><td><strong>Save</strong> current position</td></tr>
-        <tr><td><code>G</code></td><td>Go to saved point</td></tr>
+        <tr><td><code>G</code></td><td>Go to saved point (<code>ESC</code> to cancel mid-move)</td></tr>
         <tr><td><code>H</code></td><td>Delete saved point</td></tr>
         <tr><td><code>P</code></td><td>Open points explorer</td></tr>
         <tr><td><code>R</code></td><td>Rename saved point</td></tr>
@@ -328,10 +328,34 @@ robot.points_db = "points.db"
 robot.move_to("pick")                      # linear move (default)
 robot.move_to("pick", linear=False)        # joint move
 robot.move_to("pick", vel=1.0, acc=0.5)    # override speed
+robot.move_to("pick", asynchronous=True)   # non-blocking, returns immediately
 ```
 
 - **Linear (moveL):** TCP moves in a straight line. Predictable path, slower near complex orientations.
 - **Joint (moveJ):** Each joint moves simultaneously. Faster, but the TCP follows an arc.
+- **Asynchronous:** When `asynchronous=True`, the move runs in the UR controller's background thread and the method returns immediately.
+
+#### Non-Blocking Moves
+
+Start a move and do other things while it runs:
+
+```python
+robot.move_to("pick", asynchronous=True)
+
+# Poll until done
+while robot.is_moving():
+    time.sleep(0.01)
+
+# Or cancel mid-move
+robot.move_to("pick", asynchronous=True)
+while robot.is_moving():
+    if should_cancel:
+        robot.stop()  # sends stopL + stopJ
+        break
+    time.sleep(0.01)
+```
+
+**Teach pendant Go To** uses this pattern internally — Space cancels the move and returns to the menu.
 
 #### Pose Format
 
@@ -423,6 +447,7 @@ robot.is_freedrive_active             # check state
 #### Speed Control
 
 ```python
+robot.stop()                          # stop current move immediately (stopL + stopJ)
 robot.speed_stop()                    # stop velocity-controlled motion (not E-stop)
 robot.set_speed_slider(0.5)           # 50% velocity cap
 robot.get_speed_slider()              # read current slider (0.0-1.0)
@@ -444,9 +469,26 @@ joints = robot.get_joint_positions()  # [j0..j5]
 force = robot.get_tcp_force()         # [fx, fy, fz, mx, my, mz]
 mode = robot.get_robot_mode()         # "REMOTE_CONTROL", "SERVOING", etc.
 payload = robot.get_payload()         # kg
+robot.is_moving()                     # bool — any joint/TCP velocity non-zero
 robot.is_protective_stopped()         # bool
 robot.is_emergency_stopped()          # bool
 robot.current_point()                 # {"pose": [...], "joints": [...]}
+robot.is_at_pose(target)              # bool — TCP within 1mm / 0.5°
+robot.is_at_joints(target)            # bool — all joints within 0.001 rad
+```
+
+`is_moving()` is the simplest way to poll — `is_at_pose()` / `is_at_joints()` for precise target checking:
+
+```python
+robot.move_to("pick", asynchronous=True)
+
+# Simple: wait until robot stops
+while robot.is_moving():
+    time.sleep(0.01)
+
+# Precise: check against specific target
+while not robot.is_at_pose(target_pose):
+    time.sleep(0.01)
 ```
 
 ### Digital I/O

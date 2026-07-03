@@ -9,7 +9,12 @@ from __future__ import annotations
 import logging
 import sys
 import time
+from typing import TYPE_CHECKING, Union
 from pathlib import Path
+
+if TYPE_CHECKING:
+    from rtde.control_interface import RTDEControlInterface
+    from rtde.receive_interface import RTDEReceiveInterface
 
 from urkit.connection import (
     _check_remote_mode,
@@ -332,7 +337,7 @@ class URRobot:
             >>> robot = URRobot.from_config("config.yaml", ip="10.0.0.50")
             >>> robot = URRobot.from_config({"robot_ip": "172.31.1.42", "points_path": "points.db", "gripper": "2f-85"})
         """
-        from urkit.config import load_config, resolve_config
+        from urkit.config import resolve_config
 
         if isinstance(config, str):
             resolved = resolve_config(config)
@@ -841,6 +846,7 @@ class URRobot:
         frame: MoveFrame | None = None,
         vel: float | None = None,
         acc: float | None = None,
+        asynchronous: bool = False,
     ) -> None:
         """Move to a saved point or raw pose.
 
@@ -888,10 +894,10 @@ class URRobot:
 
         try:
             if linear:
-                self._motion.movel(pose, vel=vel, acc=acc)
+                self._motion.movel(pose, vel=vel, acc=acc, asynchronous=asynchronous)
             else:
                 joints = self.inverse_kinematics(pose)
-                self._motion.movej(joints, vel=vel, acc=acc)
+                self._motion.movej(joints, vel=vel, acc=acc, asynchronous=asynchronous)
         except MotionError:
             raise
         except Exception as e:
@@ -899,6 +905,53 @@ class URRobot:
                 f"'{target}'" if isinstance(target, str) else str(target[:3])
             )
             raise MotionError(f"Move to {target_label} failed: {e}")
+
+    def is_moving(self) -> bool:
+        """Check if the robot is currently moving.
+
+        Returns True if any joint or TCP velocity is non-zero.
+
+        Returns:
+            True if moving, False if stopped.
+
+        Example:
+            >>> robot.move_to("home", asynchronous=True)
+            >>> while robot.is_moving():
+            ...     time.sleep(0.01)
+            >>> print("Done!")
+        """
+        try:
+            joint_vel = self._rtde_r.getActualQd()
+            tcp_speed = self._rtde_r.getActualTCPSpeed()
+
+            joint_moving = any(abs(v) > 0.0001 for v in joint_vel)
+            tcp_moving = any(abs(v) > 0.0001 for v in tcp_speed[:3]) or any(
+                abs(v) > 0.0001 for v in tcp_speed[3:]
+            )
+
+            return joint_moving or tcp_moving
+        except Exception:
+            return False
+
+    def stop(self) -> None:
+        """Stop the current move immediately.
+
+        Sends stopL/stopJ with high deceleration to halt the robot.
+        Safe to call even if robot is not moving.
+
+        Example:
+            >>> robot.move_to("p1", asynchronous=True)
+            >>> # ... later ...
+            >>> robot.stop()
+        """
+        try:
+            self._rtde_c.stopL(5.0, True)
+        except Exception:
+            pass
+        try:
+            self._rtde_c.stopJ(5.0, True)
+        except Exception:
+            pass
 
     def move_relative(
         self,
