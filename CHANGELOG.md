@@ -19,8 +19,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [3.1] — 2026-07-03
 
-## [0.3.0] — 2026-06-19
-
 ### Added
 - Async motion support: `move_to()`, `movel()`, `movej()` accept `asynchronous=True`
 - `is_moving()` method — polls joint/TCP velocity to detect motion
@@ -49,6 +47,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - "Exiting teach pendant" printed twice: removed duplicate `_cleanup()` call
 - `AttributeError: 'PosixPath' object has no attribute 'get'`: use `load_config()` instead of `resolve_config()`
 - All pre-existing pyflakes warnings (0 warnings now)
+
+## [0.3.0] — 2026-06-19
+
+### Added
+- Safe/expert mode display in header
+- speed_stop on ESC and Ctrl+C exit
+- Safety features for teach mode
 
 ## [0.2.1] — 2026-06-18
 
