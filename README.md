@@ -163,6 +163,8 @@ All movement and orientation keys support **hold-to-repeat**.
         <tr><td><code>X</code></td><td>Open</td></tr>
         <tr><td><code>C</code></td><td>Close</td></tr>
         <tr><td><code>V</code></td><td>Set position (mm)</td></tr>
+        <tr><td><code>6</code></td><td>Set speed (0-100)</td></tr>
+        <tr><td><code>7</code></td><td>Set force (0-100)</td></tr>
       </table>
     </td>
     <td align="center" style="width:33%">

@@ -385,7 +385,7 @@ def _draw_screen(
     lines.append(f"  {yellow('MOVE:')}    {yellow('W/S')}: ±X  {yellow('A/D')}: ±Y  {yellow('Q/E')}: ±Z")
     lines.append(f"  {yellow('ORIENT:')}  {yellow('U/O')}: ±Roll  {yellow('I/K')}: ±Pitch  {yellow('J/L')}: ±Yaw")
     lines.append(f"  {yellow('STEP:')}    {yellow('1')}: Linear (mm)  {yellow('2')}: Angular (°)  {yellow('.')}: Reset")
-    lines.append(f"  {yellow('GRIPPER:')} {yellow('X')}: Open  {yellow('C')}: Close  {yellow('V')}: Position")
+    lines.append(f"  {yellow('GRIPPER:')} {yellow('X')}: Open  {yellow('C')}: Close  {yellow('V')}: Position  {yellow('6')}: Speed  {yellow('7')}: Force")
     lines.append(f"  {yellow('POINTS:')}  {yellow('B')}: Save  {yellow('G')}: Go To  {yellow('H')}: Delete  {yellow('R')}: Rename  {yellow('P')}: Explorer")
     lines.append(f"  {yellow('OTHER:')}   {yellow('F')}: Freedrive  {yellow('M')}: Frame  {yellow('N')}: GoTo Mode  {yellow('T')}: TCP Down")
     lines.append(f"  {yellow('      ')}   {yellow('0')}: Speed  {yellow('Y')}: Save Config")
@@ -1231,6 +1231,36 @@ def _teach_pendant(
                             messages.append(f"Gripper error: {e}")
                     else:
                         messages.append("No gripper configured")
+                    command_handled = True
+
+                elif key == "6":
+                    if robot.gripper and hasattr(robot.gripper, 'set_speed'):
+                        val = _read_input("  Gripper speed (0-100): ")
+                        try:
+                            speed = float(val)  # type: ignore
+                            robot.gripper.set_speed(max(0, min(speed, 100)))
+                            messages.append(f"Gripper speed set to {speed:.0f}")
+                        except (ValueError, TypeError):
+                            messages.append("Invalid speed value")
+                        except Exception as e:
+                            messages.append(f"Gripper error: {e}")
+                    else:
+                        messages.append("Speed not available for this gripper")
+                    command_handled = True
+
+                elif key == "7":
+                    if robot.gripper and hasattr(robot.gripper, 'set_force'):
+                        val = _read_input("  Gripper force (0-100): ")
+                        try:
+                            force = float(val)  # type: ignore
+                            robot.gripper.set_force(max(0, min(force, 100)))
+                            messages.append(f"Gripper force set to {force:.0f}")
+                        except (ValueError, TypeError):
+                            messages.append("Invalid force value")
+                        except Exception as e:
+                            messages.append(f"Gripper error: {e}")
+                    else:
+                        messages.append("Force not available for this gripper")
                     command_handled = True
 
                 # --- Point management ---
