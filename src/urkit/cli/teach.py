@@ -68,6 +68,10 @@ _DEFAULT_ANGULAR_STEP = math.radians(0.5)  # 0.5 degrees in radians
 _DEFAULT_ANGULAR_STEP_MIN = math.radians(0.1)  # 0.1 degrees
 _DEFAULT_ANGULAR_STEP_MAX = math.radians(5)    # 5 degrees
 
+# Safe mode step caps (tighter for teaching)
+_SAFE_LINEAR_STEP_MAX = 0.01   # 10mm
+_SAFE_ANGULAR_STEP_MAX = math.radians(1.0)  # 1 degree
+
 # Safe motion limits (UR protective stop thresholds)
 _MAX_VEL = 3.0        # m/s
 _MAX_ACC = 6.0        # m/s²
@@ -1111,7 +1115,8 @@ def _teach_pendant(
                     try:
                         mm = float(val)  # type: ignore
                         state["linear_step"] = max(mm / 1000, _DEFAULT_LINEAR_STEP_MIN)
-                        state["linear_step"] = min(state["linear_step"], _DEFAULT_LINEAR_STEP_MAX)
+                        cap = _SAFE_LINEAR_STEP_MAX if not expert_mode else _DEFAULT_LINEAR_STEP_MAX
+                        state["linear_step"] = min(state["linear_step"], cap)
                     except (ValueError, TypeError):
                         messages.append("Invalid step value")
                     command_handled = True
@@ -1121,7 +1126,8 @@ def _teach_pendant(
                     try:
                         deg = float(val)  # type: ignore
                         state["angular_step"] = max(math.radians(deg), _DEFAULT_ANGULAR_STEP_MIN)
-                        state["angular_step"] = min(state["angular_step"], _DEFAULT_ANGULAR_STEP_MAX)
+                        cap = _SAFE_ANGULAR_STEP_MAX if not expert_mode else _DEFAULT_ANGULAR_STEP_MAX
+                        state["angular_step"] = min(state["angular_step"], cap)
                     except (ValueError, TypeError):
                         messages.append("Invalid step value")
                     command_handled = True
