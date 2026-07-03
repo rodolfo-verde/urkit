@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [3.2] — 2026-07-03
+## [0.3.2] — 2026-07-03
 
 ### Added
 - `6`/`7` keys for gripper speed/force (prompt-based, Robotiq only)
@@ -17,7 +17,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Redundant inline import of `load_config` in teach pendant
 - Redundant Enter key handler in points explorer (auto-refreshes every 2s)
 
-## [3.1] — 2026-07-03
+## [0.3.1] — 2026-07-03
 
 ### Added
 - Async motion support: `move_to()`, `movel()`, `movej()` accept `asynchronous=True`
