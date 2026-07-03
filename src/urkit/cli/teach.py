@@ -841,7 +841,15 @@ def _submenu_explore_points(robot: URRobot, messages: list[str]) -> None:
             messages.append("No saved points")
             return
         
-        _interactive_points_filter(robot.points_db, all_points)  # type: ignore
+        # Resolve points path for the explorer
+        config = load_config()
+        points_path = config.get("points_path") if config else None
+        if points_path:
+            points_path = Path(points_path).resolve()
+        else:
+            points_path = Path("points.db").resolve()
+        
+        _interactive_points_filter(robot.points_db, all_points, points_path)
         messages.append("Closed points explorer")
     except Exception as e:
         messages.append(f"Error: {e}")

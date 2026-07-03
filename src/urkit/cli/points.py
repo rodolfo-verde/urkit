@@ -274,25 +274,6 @@ def _interactive_points_filter(points_db: Points, all_points: list[str], points_
                     filter_str = filter_str[:-1]
                     scroll = 0
                     needs_redraw = True
-            elif ch == "\r":  # Enter — reload points from database
-                if not points_path.exists():
-                    refresh_error = "Database file deleted"
-                    all_points = []
-                    all_points_sorted = []
-                    filtered = []
-                    scroll = 0
-                    needs_redraw = True
-                else:
-                    try:
-                        all_points = points_db.list()
-                        refresh_error = None
-                        all_points_sorted = sorted(all_points)
-                        filtered = [p for p in all_points_sorted if filter_str == "" or filter_str.lower() in p.lower()]
-                        scroll = 0
-                        needs_redraw = True
-                    except Exception as e:
-                        refresh_error = str(e)
-                        needs_redraw = True
             elif ch.isprintable():
                 filter_str += ch
                 scroll = 0

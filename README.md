@@ -169,7 +169,7 @@ All movement and orientation keys support **hold-to-repeat**.
       <table>
         <tr><th>Key</th><th>Action</th></tr>
         <tr><td><code>B</code></td><td><strong>Save</strong> current position</td></tr>
-        <tr><td><code>G</code></td><td>Go to saved point (<code>ESC</code> to cancel mid-move)</td></tr>
+        <tr><td><code>G</code></td><td>Go to saved point (<code>Space</code> to cancel mid-move, <code>ESC</code> to exit)</td></tr>
         <tr><td><code>H</code></td><td>Delete saved point</td></tr>
         <tr><td><code>P</code></td><td>Open points explorer</td></tr>
         <tr><td><code>R</code></td><td>Rename saved point</td></tr>
