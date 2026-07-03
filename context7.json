@@ -1,6 +1,4 @@
 {
   "url": "https://context7.com/rodolfo-verde/urkit",
-  "public_key": "pk_0FKnR2Xd17fVyV9250Rre",
-  "includedFolders": ["src/urkit"],
-  "excludedFolders": ["tests"]
+  "public_key": "pk_0FKnR2Xd17fVyV9250Rre"
 }
