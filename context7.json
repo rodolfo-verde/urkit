@@ -1,0 +1,4 @@
+{
+  "includedFolders": ["src/urkit"],
+  "excludedFolders": ["tests"]
+}
