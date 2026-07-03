@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.1] — 2026-07-03
+
 ### Fixed
 - Missing `points_path` argument in `_submenu_explore_points` (P key crash)
 - Redundant inline import of `load_config` in teach pendant

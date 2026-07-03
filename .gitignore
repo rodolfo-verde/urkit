@@ -5,6 +5,7 @@ __pycache__/
 dist/
 build/
 *.egg
+.mypy_cache/
 
 # Virtual env
 .venv/
