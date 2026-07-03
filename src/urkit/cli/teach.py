@@ -305,11 +305,16 @@ def _draw_screen(
     if robot.gripper:
         pos_mm = robot.gripper.get_position_mm()
         max_mm = robot.gripper.max_travel_mm()
+        extra = ""
+        if hasattr(robot.gripper, '_force'):
+            extra += f" F={robot.gripper._force}"
+        if hasattr(robot.gripper, '_speed'):
+            extra += f" S={robot.gripper._speed}"
         if pos_mm is not None and max_mm is not None and max_mm > 0:
             pct = int((max_mm - pos_mm) / max_mm * 100)
-            gripper_state = f"{green('Connected')} {pos_mm:.1f}mm ({pct}%)"
+            gripper_state = f"{green('Connected')} {pos_mm:.1f}mm ({pct}%)" + extra
         else:
-            gripper_state = green("Connected")
+            gripper_state = f"{green('Connected')}" + extra
 
     lines: list[str] = []
 
@@ -845,7 +850,7 @@ def _submenu_explore_points(robot: URRobot, messages: list[str]) -> None:
         config = load_config()
         points_path = config.get("points_path") if config else None
         if points_path:
-            points_path = Path(points_path).resolve()
+            points_path = Path(str(points_path)).resolve()  # type: ignore[arg-type]
         else:
             points_path = Path("points.db").resolve()
         

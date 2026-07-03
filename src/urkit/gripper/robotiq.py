@@ -103,6 +103,7 @@ class RobotiqGripper(Gripper):
         The preamble defines all ``rq_*`` functions and initializes
         socket state.  Two config lines override the mm range for
         the current gripper model before the function executes.
+        Force and speed are set before each operation.
 
         Args:
             function_call: A preamble function call (e.g. ``rq_open_and_wait()``).
@@ -114,6 +115,8 @@ class RobotiqGripper(Gripper):
             ROBOTIQ_PREAMBLE
             + "set_closed_mm(0.0, 1)\n"
             + f"set_open_mm({self._max_mm}.0, 1)\n"
+            + f"rq_set_force({self._force}, 1)\n"
+            + f"rq_set_speed({self._speed}, 1)\n"
             + f"{function_call}\n"
         )
 

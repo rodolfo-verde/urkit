@@ -165,6 +165,7 @@ All movement and orientation keys support **hold-to-repeat**.
         <tr><td><code>V</code></td><td>Set position (mm)</td></tr>
         <tr><td><code>6</code></td><td>Set speed (0-100)</td></tr>
         <tr><td><code>7</code></td><td>Set force (0-100)</td></tr>
+        <tr><td colspan="3">Gripper line shows: `Connected 50.0mm (0%) F=100 S=100`</td></tr>
       </table>
     </td>
     <td align="center" style="width:33%">
