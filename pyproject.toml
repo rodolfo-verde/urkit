@@ -16,8 +16,10 @@ authors = [
 keywords = [
     "universal-robots",
     "ur3e",
+    "ur5e",
     "ur7e",
     "ur8",
+    "ur10e",
     "ur12e",
     "ur15",
     "ur16e",
