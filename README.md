@@ -166,7 +166,7 @@ All movement and orientation keys support **hold-to-repeat**.
         <tr><td><code>V</code></td><td>Set position (mm)</td></tr>
         <tr><td><code>6</code></td><td>Set speed (0-100)</td></tr>
         <tr><td><code>7</code></td><td>Set force (0-100)</td></tr>
-        <tr><td colspan="3">Gripper line shows: `Connected 50.0mm (0%) F=100 S=100`</td></tr>
+        <tr><td colspan="3">Gripper line shows: `Connected 25.0mm (50%) F=100 S=100`</td></tr>
       </table>
     </td>
     <td align="center" style="width:33%">
@@ -287,7 +287,8 @@ robot.gripper.is_activated()          # check activation state
 robot.gripper.open()                  # fully open (blocking by default)
 robot.gripper.close()                 # fully closed, stops on contact
 robot.gripper.open(wait=False)        # non-blocking return
-robot.gripper.set_position(20)        # 20mm open (Robotiq only, 0 = closed)
+robot.gripper.set_position_mm(20)     # 20mm open (Robotiq only, 0 = closed)
+robot.gripper.set_position_percent(50) # 50% open (Robotiq only, 0 = open, 100 = closed)
 robot.gripper.set_force(50)           # grip force: 0-100 (Robotiq only)
 robot.gripper.set_speed(80)           # movement speed: 0-100 (Robotiq only)
 ```

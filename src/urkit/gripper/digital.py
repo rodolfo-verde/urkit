@@ -98,14 +98,25 @@ class DigitalGripper(Gripper):
             "ON" if self._closed_when_high else "OFF",
         )
 
-    def set_position(self, position: int) -> None:
+    def set_position_mm(self, mm: float) -> None:
         """Set the gripper position.
 
         Raises:
             GripperError: Always — digital grippers don't support position control.
         """
         raise GripperError(
-            "Digital grippers do not support set_position. "
+            "Digital grippers do not support set_position_mm. "
+            "Use open() or close() instead."
+        )
+
+    def set_position_percent(self, percent: int, *, wait: bool = True) -> None:
+        """Set the gripper position as a percentage.
+
+        Raises:
+            GripperError: Always — digital grippers don't support position control.
+        """
+        raise GripperError(
+            "Digital grippers do not support set_position_percent. "
             "Use open() or close() instead."
         )
 

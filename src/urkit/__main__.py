@@ -41,8 +41,8 @@ def main() -> None:
         "--gripper",
         type=str,
         default=None,
-        choices=["2f-85", "2f-140", "hand-e", "digital", "none"],
-        help="Gripper preset (overrides config file). Use 'none' to disable gripper",
+        help="Gripper preset (overrides config file). Use 'none' to disable gripper. "
+             "Accepts: 2f-85, 2f-140, hand-e, digital, none (case-insensitive, _ or -)",
     )
     teach_parser.add_argument(
         "--gripper-pin",

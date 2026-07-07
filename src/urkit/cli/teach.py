@@ -351,7 +351,7 @@ def _draw_screen(
         if payload == 0:
             tcp_label = f"{dim('0.0kg (no payload)')}"
         else:
-            tcp_label = green(f"{payload:.1f}kg")
+            tcp_label = green(f"{payload:.3f}kg")
         lines.append(f" {blue('Payload:'.ljust(lw))} {tcp_label}")
     except Exception:
         pass
@@ -1229,13 +1229,12 @@ def _teach_pendant(
 
                 elif key == "v":
                     if robot.gripper:
-                        max_mm = getattr(robot.gripper, '_max_mm', None)
-                        prompt = f"  Gripper position (0-{max_mm} mm): " if max_mm is not None else "  Gripper position (mm): "
+                        prompt = "  Gripper position (0-100%): "
                         val = _read_input(prompt)
                         try:
-                            mm = float(val)  # type: ignore
-                            robot.gripper.set_position(mm)  # type: ignore
-                            messages.append(f"Gripper set to {mm:.1f} mm")
+                            percent = float(val)  # type: ignore
+                            robot.gripper.set_position_percent(int(percent))  # type: ignore
+                            messages.append(f"Gripper set to {int(percent)}%")
                         except (ValueError, TypeError):
                             messages.append("Invalid position value")
                         except Exception as e:
@@ -1369,6 +1368,9 @@ def teach_command(args) -> None:
     # "none" is an explicit CLI override — don't fall through to config
     if gripper_name and gripper_name.lower() == "none":  # type: ignore
         gripper_name = None
+    # Normalize: lowercase, replace _ with - (e.g. "2F_140" → "2f-140")
+    if gripper_name and isinstance(gripper_name, str):
+        gripper_name = gripper_name.lower().replace("_", "-")
     points_path = args.points or config.get("points_path") or "points.db"
 
     # Resolve gripper constructor params from config.yaml gripper_config section

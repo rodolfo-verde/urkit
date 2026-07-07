@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+## [0.3.5] — 2026-07-07
+
+### Changed
+- `set_position(mm)` renamed to `set_position_mm(mm)` — name now makes the unit explicit
+- `set_position_percent(percent)` added — 0 = fully open, 100 = fully closed, delegates to preamble's `rq_move_norm` / `rq_move_and_wait_norm`
+- Payload tracking: `get_payload()` now returns the locally-tracked value instead of reading from RTDE `payload` output field (which returns garbage on some PolyScope versions)
+- Payload: `set_payload()` now uses `setTargetPayload()` with fallback to `setPayload()` for older PolyScope (< 5.11.0), logs warning on fallback, tracks mass locally
+- CLI: `--gripper` now accepts case-insensitive input and both `-` / `_` (e.g. `2F_140`, `HAND-E`, `none` all work)
+- Added `get_polyscope_version()` — returns PolyScope version string via Dashboard (e.g. '5.25.0'), or None if unavailable
+
 ## [0.3.4] — 2026-07-03
 
 ### Added

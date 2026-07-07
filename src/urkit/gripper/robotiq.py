@@ -94,7 +94,7 @@ class RobotiqGripper(Gripper):
         if not self._activated:
             raise GripperError(
                 "Gripper is not activated. Call activate() before "
-                "using open(), close(), or set_position()."
+                "using open(), close(), or set_position_mm()."
             )
 
     def _build_script(self, function_call: str) -> str:
@@ -259,7 +259,7 @@ class RobotiqGripper(Gripper):
         self._last_position_mm = 0.0
         logger.debug("Robotiq gripper closed (wait=%s)", wait)
 
-    def set_position(self, mm: float, *, wait: bool = True) -> None:
+    def set_position_mm(self, mm: float, *, wait: bool = True) -> None:
         """Set the gripper to a specific opening in millimeters.
 
         Args:
@@ -284,6 +284,41 @@ class RobotiqGripper(Gripper):
         self._send_script(self._build_script(func))
         self._last_position_mm = mm
         logger.debug("Robotiq gripper set to %.1f mm (wait=%s)", mm, wait)
+
+    def set_position_percent(self, percent: int, *, wait: bool = True) -> None:
+        """Set the gripper to a specific percentage opening.
+
+        0 = fully open, 100 = fully closed. Delegates to the preamble's
+        normalized functions (``rq_move_norm`` / ``rq_move_and_wait_norm``)
+        which handle the 0-100 → 0-255 gripper protocol conversion.
+
+        Args:
+            percent: Percentage opening (0-100).
+            wait: If True, block until the gripper reaches the target
+                position (default True).
+
+        Raises:
+            GripperError: If percent is out of range or the gripper
+                has not been activated.
+        """
+        if not 0 <= percent <= 100:
+            raise GripperError(
+                f"Robotiq gripper percent must be 0-100, got {percent}."
+            )
+        self._require_activated()
+        func = (
+            f"rq_move_and_wait_norm({percent})"
+            if wait
+            else f"rq_move_norm({percent})"
+        )
+        self._send_script(self._build_script(func))
+        # Track last position in mm for consistency with get_position_mm()
+        mm = self._max_mm * (1 - percent / 100.0)
+        self._last_position_mm = mm
+        logger.debug(
+            "Robotiq gripper set to %d%% (%.1f mm) (wait=%s)",
+            percent, mm, wait,
+        )
 
     def set_force(self, force: int) -> None:
         """Set gripper force for subsequent movements.

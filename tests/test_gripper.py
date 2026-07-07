@@ -49,10 +49,10 @@ class TestRobotiqActivation:
         with pytest.raises(GripperError, match="not activated"):
             self.gripper.close()
 
-    def test_set_position_without_activate_raises(self):
-        """set_position() raises if gripper is not activated."""
+    def test_set_position_mm_without_activate_raises(self):
+        """set_position_mm() raises if gripper is not activated."""
         with pytest.raises(GripperError, match="not activated"):
-            self.gripper.set_position(50)
+            self.gripper.set_position_mm(50)
 
     def test_activate_sends_script_and_sets_flag(self):
         """activate() sends the preamble+activation script and sets _activated."""
@@ -86,11 +86,11 @@ class TestRobotiqActivation:
         # activate (combined check+activate+open) + close = 2 calls
         assert self.rtde.sendCustomScriptFunction.call_count == 2
 
-    def test_set_position_after_activate(self):
-        """set_position() works after activate()."""
+    def test_set_position_mm_after_activate(self):
+        """set_position_mm() works after activate()."""
         self.gripper.activate()
-        self.gripper.set_position(25)
-        # activate (combined check+activate+open) + set_position = 2 calls
+        self.gripper.set_position_mm(25)
+        # activate (combined check+activate+open) + set_position_mm = 2 calls
         assert self.rtde.sendCustomScriptFunction.call_count == 2
 
     def test_requires_rtde_control(self):
@@ -137,16 +137,16 @@ class TestRobotiqActivation:
         self.gripper.close()
         assert self.gripper.get_position_mm() == 0.0
 
-    def test_get_position_mm_after_set_position(self):
+    def test_get_position_mm_after_set_position_mm(self):
         """get_position_mm() returns the commanded position."""
         self.gripper.activate()
-        self.gripper.set_position(25)
+        self.gripper.set_position_mm(25)
         assert self.gripper.get_position_mm() == 25.0
 
     def test_get_position_mm_after_disconnect(self):
         """get_position_mm() returns None after disconnect."""
         self.gripper.activate()
-        self.gripper.set_position(30)
+        self.gripper.set_position_mm(30)
         self.gripper.disconnect()
         assert self.gripper.get_position_mm() is None
 
@@ -189,10 +189,10 @@ class TestDigitalActivation:
         gripper.close()
         mock_rtde.setStandardDigitalOut.assert_called_with(1, False)
 
-    def test_set_position_raises(self, mock_rtde, mock_rtde_r):
+    def test_set_position_mm_raises(self, mock_rtde, mock_rtde_r):
         gripper = DigitalGripper(mock_rtde, mock_rtde_r, pin=0)
-        with pytest.raises(GripperError, match="do not support set_position"):
-            gripper.set_position(0)
+        with pytest.raises(GripperError, match="do not support set_position_mm"):
+            gripper.set_position_mm(0)
 
     def test_set_force_raises(self, mock_rtde, mock_rtde_r):
         gripper = DigitalGripper(mock_rtde, mock_rtde_r, pin=0)

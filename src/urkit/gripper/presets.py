@@ -33,7 +33,7 @@ class GripperPreset:
         center_of_gravity: Center of gravity in tool coordinates [x, y, z], meters.
         tcp_offset: TCP offset [x, y, z, rx, ry, rz], meters/radians.
         backend: Gripper backend name (e.g. ``"robotiq"``).
-        max_mm: Maximum finger travel in mm (for ``set_position()``).
+        max_mm: Maximum finger travel in mm (for ``set_position_mm()``).
         force: Gripper force 0-100 (default 100).
         speed: Gripper speed 0-100 (default 100).
     """

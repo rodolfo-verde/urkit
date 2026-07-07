@@ -118,6 +118,7 @@ class URRobot:
         resolved_cog: list[float] = [0.0, 0.0, 0.0]
         resolved_tcp: list[float] | None = None
         gripper_backend: str | None = None
+        self._payload: float = 0.0
         if isinstance(gripper, GripperPreset):
             resolved_payload = gripper.mass
             resolved_cog = list(gripper.center_of_gravity)
@@ -246,6 +247,10 @@ class URRobot:
             self.set_tcp_offset(resolved_tcp)
         if resolved_payload > 0:
             self.set_payload(resolved_payload, resolved_cog)
+        else:
+            # No payload configured — explicitly zero it on the robot
+            # to clear any stale value from a previous session.
+            self.set_payload(0.0)
 
         logger.info("URRobot initialized at %s", ip)
 
@@ -740,9 +745,25 @@ class URRobot:
         cog = center_of_gravity if center_of_gravity is not None else [0.0, 0.0, 0.0]
         if len(cog) != 3:
             raise MotionError(f"Center of gravity must have 3 values, got {len(cog)}.")
+        # Try newer setTargetPayload first (PolyScope 5.11.0+), fall back to setPayload
         try:
-            self._rtde_c.setPayload(mass, cog)
-            logger.info("Payload set to %.2f kg, CoG=%s", mass, cog)
+            inertia = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+            self._rtde_c.setTargetPayload(mass, cog, inertia)
+            self._payload = mass
+            logger.info("Payload set to %.2f kg, CoG=%s (setTargetPayload)", mass, cog)
+        except AttributeError:
+            # setTargetPayload not available — older PolyScope
+            try:
+                self._rtde_c.setPayload(mass, cog)
+                self._payload = mass
+                logger.warning(
+                    "Payload set to %.2f kg, CoG=%s (setPayload fallback — "
+                    "setTargetPayload unavailable, likely PolyScope < 5.11.0)",
+                    mass,
+                    cog,
+                )
+            except Exception as e2:
+                raise MotionError(f"Failed to set payload: {e2}")
         except Exception as e:
             raise MotionError(f"Failed to set payload: {e}")
 
@@ -1264,7 +1285,22 @@ class URRobot:
 
     def get_payload(self) -> float:
         """Get the currently configured payload mass (kg)."""
-        return self._telemetry.get_payload()
+        return self._payload
+
+    def get_polyscope_version(self) -> str | None:
+        """Get the PolyScope version string via Dashboard (e.g. '5.25.0').
+
+        Returns:
+            Version string, or None if Dashboard is unavailable.
+        """
+        try:
+            if self._dashboard is None:
+                self._connect_dashboard()
+            if self._dashboard is None:
+                return None
+            return _dashboard_command(self._dashboard, "version")  # type: ignore
+        except Exception:
+            return None
 
     def is_protective_stopped(self) -> bool:
         """Check if the robot is in protective stop."""

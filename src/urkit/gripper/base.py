@@ -1,7 +1,7 @@
 """Abstract gripper plugin interface.
 
 All gripper backends must implement this interface so that
-``robot.gripper.open()``, ``close()``, and ``set_position()`` work
+``robot.gripper.open()``, ``close()``, ``set_position_mm()``, and ``set_position_percent()`` work
 uniformly regardless of the underlying hardware.
 """
 
@@ -13,7 +13,7 @@ from abc import ABC, abstractmethod
 class Gripper(ABC):
     """Abstract base class for gripper backends.
 
-    Subclasses must implement ``open()``, ``close()``, and ``set_position()``.
+    Subclasses must implement ``open()``, ``close()``, ``set_position_mm()``, and ``set_position_percent()``.
     The ``activate()`` method is a no-op by default and should be overridden
     by backends that require explicit activation (e.g., Robotiq). The factory
     method ``Gripper.create()`` returns the appropriate backend.
@@ -36,15 +36,15 @@ class Gripper(ABC):
         """
 
     @abstractmethod
-    def set_position(self, position: int) -> None:
-        """Set the gripper to a specific position.
+    def set_position_mm(self, mm: float) -> None:
+        """Set the gripper to a specific position in millimeters.
 
-        For Robotiq 2F grippers, position is 0-100 (0 = fully open,
-        100 = fully closed). Digital grippers don't support this and
-        raise GripperError.
+        For Robotiq 2F grippers, mm is 0 (fully closed) to max_mm
+        (fully open). Digital grippers don't support this and raise
+        GripperError.
 
         Args:
-            position: Gripper position.
+            mm: Opening in millimeters.
 
         Raises:
             GripperError: If the operation fails.
@@ -75,6 +75,21 @@ class Gripper(ABC):
 
         No-op by default. Override in subclasses that need to close
         sockets or release resources (e.g., Robotiq grippers).
+        """
+
+    def set_position_percent(self, percent: int, *, wait: bool = True) -> None:
+        """Set the gripper to a specific percentage opening.
+
+        0 = fully open, 100 = fully closed.
+
+        Args:
+            percent: Percentage opening (0-100).
+            wait: If True, block until the gripper reaches the target
+                position (default True).
+
+        Raises:
+            GripperError: If percent is out of range or the operation
+                fails.
         """
 
     def get_position_mm(self) -> float | None:
