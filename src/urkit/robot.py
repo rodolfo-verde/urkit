@@ -438,7 +438,7 @@ class URRobot:
         Example:
             >>> robot.move_frame = MoveFrame.TOOL
             >>> robot.move_relative([0.01, 0, 0, 0, 0, 0])  # +X in tool frame
-            >>> robot.move_to("pick", offset=[0, 0, 0.05])   # offset in tool frame
+            >>> robot.move_to("pick", offset_z=0.05)   # offset in tool frame
         """
         return self._move_frame
 
@@ -821,6 +821,12 @@ class URRobot:
         *,
         offset: list[float] | None = None,
         frame: MoveFrame | None = None,
+        offset_x: float = 0.0,
+        offset_y: float = 0.0,
+        offset_z: float = 0.0,
+        offset_rx: float = 0.0,
+        offset_ry: float = 0.0,
+        offset_rz: float = 0.0,
     ) -> list[float]:
         """Resolve a saved point or raw pose to a TCP pose.
 
@@ -831,9 +837,16 @@ class URRobot:
             target: A saved point name (str) or a raw TCP pose
                 [x, y, z, rx, ry, rz].
             offset: Optional offset [dx, dy, dz, drx, dry, drz]
-                applied to the target pose.
+                applied to the target pose. Mutually exclusive with
+                individual offset_* parameters.
             frame: Coordinate frame for the offset. Falls back to the
                 current ``move_frame`` property (BASE or TOOL).
+            offset_x: X offset in meters (default 0.0).
+            offset_y: Y offset in meters (default 0.0).
+            offset_z: Z offset in meters (default 0.0).
+            offset_rx: Roll offset in radians (default 0.0).
+            offset_ry: Pitch offset in radians (default 0.0).
+            offset_rz: Yaw offset in radians (default 0.0).
 
         Returns:
             TCP pose as [x, y, z, rx, ry, rz].
@@ -843,18 +856,32 @@ class URRobot:
 
         Example:
             >>> pose = robot.get_pose("pick")
-            >>> pose = robot.get_pose("pick", offset=[0, 0, 0.05, 0, 0, 0])
+            >>> pose = robot.get_pose("pick", offset_z=0.05)
             >>> robot.move_to(pose)
         """
         point = self._lookup_point(target)
 
-        if offset is not None:
-            if len(offset) != 6:
+        # Build offset from individual params or use provided list
+        individual_offset = [offset_x, offset_y, offset_z, offset_rx, offset_ry, offset_rz]
+        has_individual = any(v != 0.0 for v in individual_offset)
+
+        if offset is not None and has_individual:
+            raise PointError(
+                "Cannot use both 'offset' list and individual offset_* parameters. "
+                "Use one or the other."
+            )
+
+        final_offset = offset if offset is not None and not has_individual else (
+            individual_offset if has_individual else None
+        )
+
+        if final_offset is not None:
+            if len(final_offset) != 6:
                 raise PointError(
                     f"Offset must have 6 values [dx, dy, dz, drx, dry, drz], "
-                    f"got {len(offset)}."
+                    f"got {len(final_offset)}."
                 )
-            point = point.with_offset(offset, frame=frame or self._move_frame)
+            point = point.with_offset(final_offset, frame=frame or self._move_frame)
 
         return list(point.pose)
 
@@ -868,6 +895,12 @@ class URRobot:
         vel: float | None = None,
         acc: float | None = None,
         asynchronous: bool = False,
+        offset_x: float = 0.0,
+        offset_y: float = 0.0,
+        offset_z: float = 0.0,
+        offset_rx: float = 0.0,
+        offset_ry: float = 0.0,
+        offset_rz: float = 0.0,
     ) -> None:
         """Move to a saved point or raw pose.
 
@@ -877,11 +910,18 @@ class URRobot:
             linear: If True (default), use Cartesian linear move (moveL).
                 If False, use joint-space move (moveJ).
             offset: Optional offset [dx, dy, dz, drx, dry, drz]
-                applied to the target pose before moving.
+                applied to the target pose before moving. Mutually
+                exclusive with individual offset_* parameters.
             frame: Coordinate frame for the offset. Falls back to the
                 current ``move_frame`` property (BASE or TOOL).
             vel: Velocity override. Falls back to default_vel.
             acc: Acceleration override. Falls back to default_acc.
+            offset_x: X offset in meters (default 0.0).
+            offset_y: Y offset in meters (default 0.0).
+            offset_z: Z offset in meters (default 0.0).
+            offset_rx: Roll offset in radians (default 0.0).
+            offset_ry: Pitch offset in radians (default 0.0).
+            offset_rz: Yaw offset in radians (default 0.0).
 
         Raises:
             MotionError: If the move fails or IK has no solution.
@@ -890,8 +930,9 @@ class URRobot:
         Example:
             >>> robot.move_to("home")
             >>> robot.move_to("pick", linear=False)
-            >>> robot.move_to("place", offset=[0, 0, 0.05, 0, 0, 0])
-            >>> robot.move_to("place", offset=[0, 0, 0.05], frame=MoveFrame.TOOL)
+            >>> robot.move_to("pick", offset_z=0.05)  # 5cm above
+            >>> robot.move_to("pick", offset_x=0.01, offset_z=-0.02)
+            >>> robot.move_to("pick", offset=[0, 0, 0.05, 0, 0.1, 0])  # full
             >>> robot.move_to([0.5, 0, 0.3, 0, 0, 0])  # raw pose
         """
         self._check_connection()
@@ -899,14 +940,28 @@ class URRobot:
 
         point = self._lookup_point(target)
 
+        # Build offset from individual params or use provided list
+        individual_offset = [offset_x, offset_y, offset_z, offset_rx, offset_ry, offset_rz]
+        has_individual = any(v != 0.0 for v in individual_offset)
+
+        if offset is not None and has_individual:
+            raise PointError(
+                "Cannot use both 'offset' list and individual offset_* parameters. "
+                "Use one or the other."
+            )
+
+        final_offset = offset if offset is not None and not has_individual else (
+            individual_offset if has_individual else None
+        )
+
         # Apply offset if provided
-        if offset is not None:
-            if len(offset) != 6:
+        if final_offset is not None:
+            if len(final_offset) != 6:
                 raise PointError(
                     f"Offset must have 6 values [dx, dy, dz, drx, dry, drz], "
-                    f"got {len(offset)}."
+                    f"got {len(final_offset)}."
                 )
-            point = point.with_offset(offset, frame=frame or self._move_frame)
+            point = point.with_offset(final_offset, frame=frame or self._move_frame)
 
         pose = list(point.pose)
 
@@ -978,12 +1033,18 @@ class URRobot:
 
     def move_relative(
         self,
-        delta: list[float],
+        delta: list[float] | None = None,
         *,
         linear: bool = True,
         frame: MoveFrame | None = None,
         vel: float | None = None,
         acc: float | None = None,
+        delta_x: float = 0.0,
+        delta_y: float = 0.0,
+        delta_z: float = 0.0,
+        delta_rx: float = 0.0,
+        delta_ry: float = 0.0,
+        delta_rz: float = 0.0,
     ) -> None:
         """Relative Cartesian move from the current position.
 
@@ -992,27 +1053,55 @@ class URRobot:
 
         Args:
             delta: [dx, dy, dz, drx, dry, drz] in meters/radians.
+                Mutually exclusive with individual delta_* parameters.
             linear: If True (default), use Cartesian linear move.
                 If False, solve IK and use joint-space move.
             frame: Coordinate frame for the delta. Falls back to the
                 current ``move_frame`` property (BASE or TOOL).
             vel: Velocity override. Falls back to default_vel.
             acc: Acceleration override. Falls back to default_acc.
+            delta_x: X delta in meters (default 0.0).
+            delta_y: Y delta in meters (default 0.0).
+            delta_z: Z delta in meters (default 0.0).
+            delta_rx: Roll delta in radians (default 0.0).
+            delta_ry: Pitch delta in radians (default 0.0).
+            delta_rz: Yaw delta in radians (default 0.0).
 
         Raises:
             MotionError: If the move fails.
 
         Example:
-            >>> robot.move_relative([0, 0.01, 0, 0, 0, 0])  # 1cm along Y
-            >>> robot.move_relative([0, 0, 0.05], frame=MoveFrame.TOOL)
+            >>> robot.move_relative(delta_y=0.01)  # 1cm along Y
+            >>> robot.move_relative(delta_z=0.05, frame=MoveFrame.TOOL)
+            >>> robot.move_relative([0, 0.01, 0, 0, 0, 0])  # full list
         """
         self._check_connection()
         self._disable_freedrive_guard()
 
-        if len(delta) != 6:
+        # Build delta from individual params or use provided list
+        individual_delta = [delta_x, delta_y, delta_z, delta_rx, delta_ry, delta_rz]
+        has_individual = any(v != 0.0 for v in individual_delta)
+
+        if delta is not None and has_individual:
+            raise MotionError(
+                "Cannot use both 'delta' list and individual delta_* parameters. "
+                "Use one or the other."
+            )
+
+        final_delta = delta if delta is not None and not has_individual else (
+            individual_delta if has_individual else None
+        )
+
+        if final_delta is None:
+            raise MotionError(
+                "Relative move requires either 'delta' list or at least one "
+                "delta_* parameter."
+            )
+
+        if len(final_delta) != 6:
             raise MotionError(
                 f"Relative move requires 6 values [dx,dy,dz,drx,dry,drz], "
-                f"got {len(delta)}."
+                f"got {len(final_delta)}."
             )
 
         vel = vel if vel is not None else self._default_vel
@@ -1021,7 +1110,7 @@ class URRobot:
 
         try:
             current = list(self._rtde_r.getActualTCPPose())
-            target = transform_pose_delta(current, delta, effective_frame)
+            target = transform_pose_delta(current, final_delta, effective_frame)
 
             if linear:
                 self._motion.movel(target, vel=vel, acc=acc)

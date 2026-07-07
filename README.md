@@ -62,7 +62,7 @@ robot = URRobot(ip="192.168.1.50", points="points.db", gripper=ROBOTIQ_HAND_E)
 robot.gripper.activate()
 
 robot.move_to("home")
-robot.move_to("pick", offset=[0, 0, 0.05, 0, 0, 0])
+robot.move_to("pick", offset_z=0.05)  # 5cm above
 robot.gripper.close()
 robot.move_to("place")
 robot.gripper.open()
@@ -368,10 +368,12 @@ A pose is `[x, y, z, rx, ry, rz]`: position in meters and orientation as a **rot
 
 #### Offsets
 
-Offsets are 6-element lists `[dx, dy, dz, drx, dry, drz]`:
+Offsets can use individual parameters or a full 6-element list:
 
 ```python
-robot.move_to("pick", offset=[0, 0, 0.05, 0, 0, 0])  # 5cm above pick
+robot.move_to("pick", offset_z=0.05)  # 5cm above
+robot.move_to("pick", offset_x=0.01, offset_z=-0.02)  # combined
+robot.move_to("pick", offset=[0, 0, 0.05, 0, 0.1, 0])  # full with rotation
 ```
 
 #### Resolve a Pose
@@ -390,7 +392,7 @@ robot.move_to(pose)  # move to the resolved pose later
 from urkit import MoveFrame
 
 robot.move_frame = MoveFrame.TOOL   # default is BASE
-robot.move_relative([0, 0, 0.05, 0, 0, 0])  # 5cm along tool Z
+robot.move_relative(delta_z=0.05)  # 5cm along tool Z
 ```
 
 - **BASE** (default): delta relative to robot base
@@ -414,8 +416,9 @@ robot.import_points("backup.json")
 #### Relative Moves
 
 ```python
-robot.move_relative([0, 0.01, 0, 0, 0, 0])  # 1cm along Y
-robot.move_relative([0, 0, 0.05, 0, 0, 0], frame=MoveFrame.TOOL)  # 5cm along tool Z
+robot.move_relative(delta_y=0.01)  # 1cm along Y
+robot.move_relative(delta_z=0.05, frame=MoveFrame.TOOL)  # 5cm along tool Z
+robot.move_relative([0, 0.01, 0, 0, 0, 0])
 ```
 
 #### Sequences with Blending

@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.8] — 2026-07-07
+
+### Added
+- `move_to(offset_x, offset_y, offset_z, offset_rx, offset_ry, offset_rz)` — individual offset parameters as a cleaner alternative to the 6-element list
+- `get_pose(offset_x, offset_y, offset_z, offset_rx, offset_ry, offset_rz)` — individual offset parameters, same pattern as move_to
+- `move_relative(delta_x, delta_y, delta_z, delta_rx, delta_ry, delta_rz)` — individual delta parameters, same pattern as move_to
+
+### Fixed
+- `move_frame` docstring example used invalid 3-element offset list
+
 ## [0.3.7] — 2026-07-07
 
 ### Added
