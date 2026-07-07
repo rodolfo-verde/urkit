@@ -10,7 +10,7 @@ from __future__ import annotations
 import logging
 import os
 import sys
-import time as _time
+import time
 from contextlib import contextmanager
 from enum import IntEnum
 from typing import Iterator
@@ -255,12 +255,28 @@ class Motion:
                 f"Relative move failed: {e}"
             )
 
+    def zero_ft_sensor(self) -> None:
+        """Zero the robot's force/torque sensor.
+
+        Clears the baseline so that subsequent ``getActualTCPForce()``
+        readings reflect only forces applied after this call. Call before
+        ``move_until_contact()`` or any force-based operation.
+
+        Raises:
+            MotionError: If the command fails.
+        """
+        try:
+            self._rtde_c.zeroFtSensor()
+        except Exception as e:
+            raise MotionError(f"Failed to zero FT sensor: {e}")
+
     def move_until_contact(
         self,
         speed_vector: list[float],
         *,
         threshold: float = 5.0,
         acceleration: float = 0.1,
+        zero_first: bool = True,
     ) -> None:
         """Move until contact is detected via TCP force sensing.
 
@@ -280,12 +296,15 @@ class Motion:
                 Contact fires when any of the 6 wrench components changes
                 by more than this value from the baseline reading.
             acceleration: Acceleration limit passed to ``speedL()`` in m/s².
+            zero_first: If True (default), zero the FT sensor before reading
+                the baseline. Set to False if you need absolute force values
+                rather than delta from zero.
 
         Raises:
             MotionError: If the command fails or the vector is invalid.
 
         Example:
-            >>> # Move straight down until contact
+            >>> # Move straight down until contact (zeros FT sensor first)
             >>> motion.move_until_contact([0, 0, -0.02, 0, 0, 0])
             >>> # Move down while rotating, higher threshold
             >>> motion.move_until_contact([0, 0, -0.02, 0, 0.1, 0], threshold=10.0)
@@ -302,6 +321,11 @@ class Motion:
                 "move_until_contact: speed_vector=%s, threshold=%.2f",
                 speed_vector, threshold,
             )
+
+            # Zero FT sensor to clear gravity bias before reading baseline
+            if zero_first:
+                self.zero_ft_sensor()
+                time.sleep(0.05)  # let sensor settle after zero
 
             # Baseline force reading before the loop
             baseline = list(self._rtde_r.getActualTCPForce())
@@ -387,9 +411,9 @@ class Motion:
             raise MotionError(f"Duration must be > 0, got {duration}.")
 
         try:
-            start = _time.monotonic()
+            start = time.monotonic()
             while True:
-                elapsed = _time.monotonic() - start
+                elapsed = time.monotonic() - start
                 if elapsed >= duration:
                     break
                 if not self._rtde_c.isConnected():

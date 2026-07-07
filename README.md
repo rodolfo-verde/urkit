@@ -428,7 +428,17 @@ robot.move_sequence(["a", "b", "c"], blend_radius=0.02)
 #### Contact Detection
 
 ```python
+# Zeros FT sensor automatically, then moves until force exceeds threshold
 robot.move_until_contact([0, 0, -0.02, 0, 0, 0])
+
+# Custom threshold (default: 5.0 N/Nm)
+robot.move_until_contact([0, 0, -0.02, 0, 0, 0], threshold=10.0)
+
+# Skip zeroing if you need absolute force values
+robot.move_until_contact([0, 0, -0.02, 0, 0, 0], zero_first=False)
+
+# Manual zero (e.g. before custom force-based logic)
+robot.zero_ft_sensor()
 ```
 
 #### Velocity Control

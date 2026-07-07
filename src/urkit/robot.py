@@ -254,19 +254,19 @@ class URRobot:
 
         logger.info("URRobot initialized at %s", ip)
 
-    def activate_gripper(self, *, timeout: float = 10.0) -> bool:
-        """Activate the gripper with a timeout.
+    def _activate_gripper(self, *, timeout: float = 10.0) -> bool:
+        """Activate the gripper with error handling (internal use).
 
         Tries to activate the configured gripper. If activation fails
         or times out (e.g., gripper not physically connected), disconnects
         the gripper, nulls out ``self._gripper``, and returns ``False``.
 
-        This is the single place that handles gripper activation — the
-        CLI and library code should call this rather than touching
-        ``gripper.activate()`` directly.
+        Users should call ``robot.gripper.activate()`` directly instead.
+        This method exists for the CLI which needs graceful fallback
+        when the gripper isn't connected.
 
         Args:
-            timeout: Maximum seconds to wait for activation (default 5.0).
+            timeout: Maximum seconds to wait for activation (default 10.0).
 
         Returns:
             ``True`` if the gripper was activated successfully,
@@ -1113,16 +1113,31 @@ class URRobot:
         except Exception as e:
             raise MotionError(f"move_sequence failed: {e}")
 
+    def zero_ft_sensor(self) -> None:
+        """Zero the robot's force/torque sensor.
+
+        Clears the baseline so that subsequent force/torque readings
+        reflect only forces applied after this call. Call before
+        ``move_until_contact()`` or any force-based operation.
+
+        Raises:
+            MotionError: If the command fails.
+        """
+        self._check_connection()
+        self._motion.zero_ft_sensor()
+
     def move_until_contact(
         self,
         speed_vector: list[float],
         *,
         threshold: float = 5.0,
         acceleration: float = 0.1,
+        zero_first: bool = True,
     ) -> None:
         """Move until contact is detected via TCP force sensing.
 
         Runs an interruptible control loop — press Ctrl+C to stop at any time.
+        Zeros the FT sensor by default before reading the baseline.
 
         Args:
             speed_vector: 6-element speed vector
@@ -1131,9 +1146,11 @@ class URRobot:
                 Contact fires when any wrench component changes by more
                 than this value from the baseline reading.
             acceleration: Acceleration limit passed to ``speedL()`` in m/s².
+            zero_first: If True (default), zero the FT sensor before reading
+                the baseline. Set to False if you need absolute force values.
 
         Example:
-            >>> # Move straight down until contact
+            >>> # Move straight down until contact (zeros FT sensor first)
             >>> robot.move_until_contact([0, 0, -0.02, 0, 0, 0])
             >>> # Higher threshold for heavier contact
             >>> robot.move_until_contact([0, 0, -0.02, 0, 0, 0], threshold=10.0)
@@ -1141,7 +1158,10 @@ class URRobot:
         self._check_connection()
         self._disable_freedrive_guard()
         self._motion.move_until_contact(
-            speed_vector, threshold=threshold, acceleration=acceleration
+            speed_vector,
+            threshold=threshold,
+            acceleration=acceleration,
+            zero_first=zero_first,
         )
 
     def move_velocity(

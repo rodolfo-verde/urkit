@@ -1441,7 +1441,7 @@ def teach_command(args) -> None:
             **gripper_kwargs,
         )
         print("  Connected.", flush=True)
-        if robot.activate_gripper():
+        if robot._activate_gripper():
             print("  Gripper activated.", flush=True)
     except ConnectionError as e:
         print(f"Connection error: {e}")
