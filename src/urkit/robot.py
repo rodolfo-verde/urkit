@@ -254,7 +254,7 @@ class URRobot:
 
         logger.info("URRobot initialized at %s", ip)
 
-    def activate_gripper(self, *, timeout: float = 5.0) -> bool:
+    def activate_gripper(self, *, timeout: float = 10.0) -> bool:
         """Activate the gripper with a timeout.
 
         Tries to activate the configured gripper. If activation fails
