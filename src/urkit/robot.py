@@ -188,11 +188,27 @@ class URRobot:
                     "Continuing — RTDE connection may fail if a program is running."
                 )
 
-        # Connect RTDE
-        self._rtde_c, self._rtde_r, self._rtde_io = _connect_rtde(
-            ip,
-            frequency=self._rtde_frequency,
-        )
+        # Connect RTDE — retry after boot, the Secondary Interface may need
+        # extra time to accept connections even after the robot is IDLE.
+        rtde_attempts = 2 if boot_needed else 1
+        for attempt in range(1, rtde_attempts + 1):
+            try:
+                self._rtde_c, self._rtde_r, self._rtde_io = _connect_rtde(
+                    ip,
+                    frequency=self._rtde_frequency,
+                )
+                break
+            except Exception as e:
+                if attempt < rtde_attempts:
+                    logger.warning(
+                        "[URRobot] RTDE connection attempt %d failed: %s. "
+                        "Retrying in 5s...",
+                        attempt,
+                        e,
+                    )
+                    time.sleep(5)
+                else:
+                    raise
 
         # Initialize subsystems
         self._telemetry = Telemetry(self._rtde_r)
