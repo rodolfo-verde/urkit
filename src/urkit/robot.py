@@ -176,21 +176,22 @@ class URRobot:
             time.sleep(5)
 
         # Stop any running program — RTDE cannot upload its control script
-        # while a program is occupying the Secondary Interface. Only needed
-        # after a boot (a program left running by another client is their problem).
-        if boot_needed:
-            try:
-                self._stop_program()
-                time.sleep(2)
-            except ConnectionError:
-                logger.warning(
-                    "[URRobot] Could not stop program via Dashboard. "
-                    "Continuing — RTDE connection may fail if a program is running."
-                )
+        # while a program occupies the Secondary Interface. Always try, since
+        # a previous session may have left ExternalControl running.
+        try:
+            self._stop_program()
+            time.sleep(2)
+        except ConnectionError:
+            logger.warning(
+                "[URRobot] Could not stop program via Dashboard. "
+                "Continuing — RTDE connection may fail if a program is running."
+            )
 
-        # Connect RTDE — retry after boot, the Secondary Interface may need
-        # extra time to accept connections even after the robot is IDLE.
-        rtde_attempts = 2 if boot_needed else 1
+        # Connect RTDE — retry, the Secondary Interface may need time to
+        # release registers after program stop or boot.
+        from urkit.exceptions import RtdeRegisterConflictError
+
+        rtde_attempts = 2
         for attempt in range(1, rtde_attempts + 1):
             try:
                 self._rtde_c, self._rtde_r, self._rtde_io = _connect_rtde(
@@ -198,6 +199,22 @@ class URRobot:
                     frequency=self._rtde_frequency,
                 )
                 break
+            except RtdeRegisterConflictError as e:
+                if attempt < rtde_attempts:
+                    logger.warning(
+                        "[URRobot] RTDE registers in use (attempt %d/%d). "
+                        "Retrying in 5s...",
+                        attempt,
+                        rtde_attempts,
+                    )
+                    time.sleep(5)
+                else:
+                    raise ConnectionError(
+                        f"RTDE registers are locked on robot at {ip}. "
+                        "A previous session crashed without releasing its connection.\n"
+                        "Fix: fully shut down the robot controller "
+                        "(Settings → System → Shutdown), wait 10s, power on."
+                    ) from e
             except Exception as e:
                 if attempt < rtde_attempts:
                     logger.warning(

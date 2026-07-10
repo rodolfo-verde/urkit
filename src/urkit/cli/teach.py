@@ -1445,7 +1445,7 @@ def teach_command(args) -> None:
             print("  Gripper activated.", flush=True)
     except ConnectionError as e:
         print(f"Connection error: {e}")
-        if "RTDE" in str(e):
+        if "RTDE" in str(e) and "registers are locked" not in str(e):
             print(
                 "\n  The robot is reachable but RTDE could not connect.\n"
                 "  This usually means Remote Control is not enabled.\n"

@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.11] — 2026-07-10
+
+### Fixed
+- Always stop running program via Dashboard before RTDE connect (was: only after boot) — handles crashed sessions leaving ExternalControl running
+- RTDE connection retries (2×5s) with clear error message pointing to controller reboot when registers are locked
+- CLI no longer shows misleading "Remote Control not enabled" hint when the real issue is locked RTDE registers
+
 ## [0.3.10] — 2026-07-10
 
 ### Fixed
