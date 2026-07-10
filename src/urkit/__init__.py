@@ -24,7 +24,7 @@ Quick start::
 
 from __future__ import annotations
 
-__version__ = "0.3.11"
+__version__ = "0.3.12"
 
 from urkit.config import load_config, resolve_config
 from urkit.exceptions import (

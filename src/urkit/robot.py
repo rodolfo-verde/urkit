@@ -9,7 +9,7 @@ from __future__ import annotations
 import logging
 import sys
 import time
-from typing import TYPE_CHECKING, Union
+from typing import TYPE_CHECKING, Optional, Union
 from pathlib import Path
 
 if TYPE_CHECKING:
@@ -1491,17 +1491,23 @@ class URRobot:
     # Point management
     # ------------------------------------------------------------------
 
-    def save_point(self, name: str) -> Point:
-        """Save the current robot position as a named point.
+    def save_point(self, name: str, pose: Optional[list[float]] = None) -> Point:
+        """Save a named point.
 
-        Stores the TCP pose from getActualTCPPose(). The UR controller
-        interprets the stored pose in whatever TCP frame is active at
-        playback time, making points tool-agnostic by design.
+        When *pose* is omitted, saves the current TCP pose from
+        getActualTCPPose(). When *pose* is provided, saves that
+        arbitrary pose directly without moving the robot.
+
+        The UR controller interprets the stored pose in whatever TCP
+        frame is active at playback time, making points tool-agnostic
+        by design.
 
         Overwrites if a point with the same name already exists.
 
         Args:
             name: Name for the saved point.
+            pose: TCP pose [x, y, z, rx, ry, rz]. Defaults to current
+                robot position.
 
         Returns:
             The saved Point object.
@@ -1510,7 +1516,8 @@ class URRobot:
             PointError: If points database is not set or saving fails.
         """
         points = self._require_points()
-        pose = self._telemetry.get_tcp_pose()
+        if pose is None:
+            pose = self._telemetry.get_tcp_pose()
         point = Point(name=name, pose=pose)
         points.save(point)
         logger.info("Saved point '%s'", name)
