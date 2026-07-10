@@ -163,7 +163,10 @@ class URRobot:
         # handles that case too.
         self._connect_dashboard()
         did_power_on = self.power_on()
-        did_release = self.release_brakes()
+        # After power_on the robot is IDLE but brakes are still engaged —
+        # robotmode can't distinguish "IDLE braked" from "IDLE released",
+        # so force the brake release when we just powered on.
+        did_release = self.release_brakes(force=did_power_on)
         boot_needed = did_power_on or did_release
 
         # Settle after boot — the robot reports IDLE but the Secondary
@@ -584,9 +587,13 @@ class URRobot:
             if "Powering on" in response:
                 _status("Powering on robot...", done=False)
                 logger.info("Robot powering on, waiting for ready state...")
+                # Wait until the robot reaches IDLE (brakes engaged, ready for
+                # brake release).  Stopping at "not POWER_OFF" is insufficient —
+                # the robot may still be in POWER_ON or BOOTING where the
+                # dashboard rejects "brake release" with a mounting error.
                 self._poll_robotmode(
-                    lambda m: "POWER_OFF" not in m.upper(),
-                    timeout=30.0,
+                    lambda m: "IDLE" in m.upper(),
+                    timeout=15.0,
                 )
                 _status("Robot powered on", done=True)
                 return True
@@ -613,11 +620,17 @@ class URRobot:
         except Exception as e:
             raise ConnectionError(f"Power off failed: {e}")
 
-    def release_brakes(self) -> bool:
+    def release_brakes(self, *, force: bool = False) -> bool:
         """Release the robot brakes (enable control).
 
-        Checks the current robot mode first. If the robot is already
-        in IDLE or RUNNING, the command is skipped silently.
+        Checks the current mode first. If the robot is already
+        in RUNNING, the command is skipped silently. (IDLE cannot
+        distinguish braked from released — use *force* after power_on.)
+
+        Args:
+            force: Skip the mode check and send brake release regardless.
+                Should be True when called immediately after power_on(),
+                because robotmode reports IDLE for both braked and released.
 
         Polls until the robot reports IDLE or RUNNING mode.
 
@@ -629,20 +642,34 @@ class URRobot:
             ConnectionError: If brake release fails or times out.
         """
         try:
-            # Check current mode first — skip if already released.
+            # Check current mode first — skip if already running.
+            # Note: IDLE is ambiguous (brakes may be engaged or released),
+            # so we only skip on RUNNING.  When force=True (called after
+            # power_on), we skip the check entirely.
             mode = self._send_dashboard("robotmode").upper()
-            if "IDLE" in mode or "RUNNING" in mode:
+            if not force and "RUNNING" in mode:
                 logger.info("Brakes already released (mode: %s), skipping.", mode)
                 return False
 
             response = self._send_dashboard("brake release")
             logger.info("Brake release: %s", response)
+
+            # Retry once if the mounting calibration wasn't ready.
+            if "mounting is not correct" in response:
+                logger.info(
+                    "Brake release rejected (mounting not ready), "
+                    "retrying after 3s..."
+                )
+                time.sleep(3)
+                response = self._send_dashboard("brake release")
+                logger.info("Brake release (retry): %s", response)
+
             if "Brake releasing" in response:
                 _status("Releasing brakes...", done=False)
                 logger.info("Brakes releasing, waiting for ready state...")
                 self._poll_robotmode(
                     lambda m: "IDLE" in m.upper() or "RUNNING" in m.upper(),
-                    timeout=30.0,
+                    timeout=15.0,
                 )
                 _status("Brakes released", done=True)
                 return True
@@ -916,6 +943,8 @@ class URRobot:
                 current ``move_frame`` property (BASE or TOOL).
             vel: Velocity override. Falls back to default_vel.
             acc: Acceleration override. Falls back to default_acc.
+            asynchronous: If True, move runs in background and method returns
+                immediately (default False).
             offset_x: X offset in meters (default 0.0).
             offset_y: Y offset in meters (default 0.0).
             offset_z: Z offset in meters (default 0.0).
@@ -1039,6 +1068,7 @@ class URRobot:
         frame: MoveFrame | None = None,
         vel: float | None = None,
         acc: float | None = None,
+        asynchronous: bool = False,
         delta_x: float = 0.0,
         delta_y: float = 0.0,
         delta_z: float = 0.0,
@@ -1060,6 +1090,8 @@ class URRobot:
                 current ``move_frame`` property (BASE or TOOL).
             vel: Velocity override. Falls back to default_vel.
             acc: Acceleration override. Falls back to default_acc.
+            asynchronous: If True, move runs in background and method returns
+                immediately (default False).
             delta_x: X delta in meters (default 0.0).
             delta_y: Y delta in meters (default 0.0).
             delta_z: Z delta in meters (default 0.0).
@@ -1113,10 +1145,10 @@ class URRobot:
             target = transform_pose_delta(current, final_delta, effective_frame)
 
             if linear:
-                self._motion.movel(target, vel=vel, acc=acc)
+                self._motion.movel(target, vel=vel, acc=acc, asynchronous=asynchronous)
             else:
                 joints = self.inverse_kinematics(target)
-                self._motion.movej(joints, vel=vel, acc=acc)
+                self._motion.movej(joints, vel=vel, acc=acc, asynchronous=asynchronous)
         except MotionError:
             raise
         except Exception as e:
@@ -1130,6 +1162,7 @@ class URRobot:
         blend_radius: float = 0.0,
         vel: float | None = None,
         acc: float | None = None,
+        asynchronous: bool = False,
     ) -> None:
         """Move through a sequence of points with optional blending.
 
@@ -1151,6 +1184,8 @@ class URRobot:
                 Applied to intermediate points only.
             vel: Velocity override. Falls back to default_vel.
             acc: Acceleration override. Falls back to default_acc.
+            asynchronous: If True, sequence runs in background and method
+                returns immediately (default False).
 
         Raises:
             MotionError: If the sequence fails or fewer than 2 targets.
@@ -1198,7 +1233,7 @@ class URRobot:
             )
 
         try:
-            self._rtde_c.movePath(path, False)  # False = synchronous
+            self._rtde_c.movePath(path, not asynchronous)
         except Exception as e:
             raise MotionError(f"move_sequence failed: {e}")
 

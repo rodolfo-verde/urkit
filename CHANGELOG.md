@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.9] — 2026-07-10
+
+### Fixed
+- `power_on()` now waits for robot to reach `IDLE` mode (was "not POWER_OFF") — the robot could still be in `POWER_ON` or `BOOTING` where the dashboard rejects "brake release" with a mounting error
+- `release_brakes(force=False)` — new `force` parameter to skip the mode check after power_on, since `IDLE` is ambiguous (brakes engaged vs released). Retry logic added for "mounting is not correct" responses
+- Poll timeouts reduced from 30s to 15s for faster failure detection
+
 ## [0.3.8] — 2026-07-07
 
 ### Added
