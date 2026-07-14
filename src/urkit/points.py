@@ -119,7 +119,7 @@ class Points:
         else:
             self._path = Path(path).resolve()
             self._path.parent.mkdir(parents=True, exist_ok=True)
-            self._conn = sqlite3.connect(str(self._path))
+            self._conn = sqlite3.connect(str(self._path), check_same_thread=False)
         _init_db(self._conn)
 
     def _close(self) -> None:
