@@ -1,0 +1,48 @@
+# URKit — Full Configuration Example
+# All parameters are optional except robot_ip.
+# Comments show defaults.
+
+# ---------------------------------------------------------------------------
+# Robot Connection
+# ---------------------------------------------------------------------------
+
+# Robot IP address (required)
+robot_ip: "192.168.1.10"
+
+# Points database path (default: "points.db")
+points_path: "points.db"
+
+# ---------------------------------------------------------------------------
+# Motion Defaults
+# ---------------------------------------------------------------------------
+
+# Default velocity in m/s (default: 0.5)
+default_vel: 0.5
+
+# Default acceleration in m/s² (default: 0.3)
+default_acc: 0.3
+
+# ---------------------------------------------------------------------------
+# Gripper
+# ---------------------------------------------------------------------------
+
+# Built-in presets: "hand-e", "2f-85", "2f-140", "digital"
+gripper: "hand-e"
+
+# Override preset defaults (optional):
+#
+#   max_mm: max finger travel in mm
+#     hand-e: 50,  2f-85: 85,  2f-140: 140
+#   force: gripper force 0-100 (default: 100)
+#   speed: gripper speed 0-100 (default: 100)
+#
+# gripper_config:
+#   force: 80
+#   speed: 60
+
+# For a digital I/O gripper (suction cup, solenoid, etc.):
+#
+#   gripper: "digital"
+#   gripper_config:
+#     pin: 0              # digital output pin 0-7 (default: 0)
+#     close_on_high: true # true=closes on HIGH, false=closes on LOW

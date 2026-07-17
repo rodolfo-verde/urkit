@@ -5,6 +5,17 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.14] — 2026-07-15
+
+### Fixed
+- `enable_freedrive` uses current TCP pose as center for constrained modes (XYZ, ROTATION) instead of `[0,0,0,0,0,0]` — prevents IK failure when robot is far from base origin
+- `enable_freedrive` captures ur_rtde stderr to surface robot errors in CLI instead of generic "returned false"
+- `move_sequence` replaced `Path`/`movePath` API with individual `moveL`/`moveJ` calls — `blend_radius` now ignored
+- `move_until_contact` accepts individual `speed_x/y/z/rx/ry/rz` keyword params alongside `speed_vector`
+
+### Changed
+- Moved inline imports to top of file (`RtdeRegisterConflictError`, `resolve_config`) — only optional/circular imports remain inline with justification
+
 ## [0.3.13] — 2026-07-14
 
 ### Fixed

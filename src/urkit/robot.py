@@ -16,6 +16,7 @@ if TYPE_CHECKING:
     from rtde.control_interface import RTDEControlInterface
     from rtde.receive_interface import RTDEReceiveInterface
 
+from urkit.config import resolve_config
 from urkit.connection import (
     _check_remote_mode,
     _connect_dashboard,
@@ -25,7 +26,13 @@ from urkit.connection import (
     _try_recover_safety,
     _validate_connection,
 )
-from urkit.exceptions import GripperError, MotionError, PointError, URKitConnectionError as ConnectionError
+from urkit.exceptions import (
+    GripperError,
+    MotionError,
+    PointError,
+    RtdeRegisterConflictError,
+    URKitConnectionError as ConnectionError,
+)
 from urkit.geometry import MoveFrame, transform_pose_delta
 from urkit.gripper.base import Gripper
 from urkit.gripper.presets import DigitalGripperConfig, GripperPreset, PRESETS
@@ -189,8 +196,6 @@ class URRobot:
 
         # Connect RTDE — retry, the Secondary Interface may need time to
         # release registers after program stop or boot.
-        from urkit.exceptions import RtdeRegisterConflictError
-
         rtde_attempts = 2
         for attempt in range(1, rtde_attempts + 1):
             try:
@@ -371,15 +376,12 @@ class URRobot:
                 speed: 80
             default_vel: 0.5
             default_acc: 0.3
-            rtde_frequency: 500
 
         Example:
             >>> robot = URRobot.from_config("config.yaml")
             >>> robot = URRobot.from_config("config.yaml", ip="10.0.0.50")
             >>> robot = URRobot.from_config({"robot_ip": "192.168.1.50", "points_path": "points.db", "gripper": "2f-85"})
         """
-        from urkit.config import resolve_config
-
         if isinstance(config, str):
             resolved = resolve_config(config)
             if resolved is None:
@@ -433,7 +435,9 @@ class URRobot:
         nested_cfg = cfg.get("gripper_config") or {}
         for key in gripper_overrides:
             if key not in gripper_kwargs:
-                gripper_kwargs[key] = nested_cfg.get(key, cfg.get(key))  # type: ignore
+                value = nested_cfg.get(key, cfg.get(key))  # type: ignore
+                if value is not None:
+                    gripper_kwargs[key] = value
 
         return cls(
             ip=resolved_ip,
@@ -1197,28 +1201,20 @@ class URRobot:
         acc: float | None = None,
         asynchronous: bool = False,
     ) -> None:
-        """Move through a sequence of points with optional blending.
+        """Move through a sequence of points.
 
-        Executes the full path as a single RTDE command using ur_rtde's
-        Path API. When *blend_radius* is set (in meters), the robot
-        rounds corners instead of stopping at each intermediate waypoint —
-        the same blending you set on the UR teach pendant.
-
-        The first and last points always use a blend radius of 0 so the
-        robot stops cleanly at the start and end of the sequence.
+        Executes each target in order using individual moveL/moveJ calls.
+        Convenience method to condense multiple moves into one call.
 
         Args:
             targets: List of saved point names or raw poses
                 [x, y, z, rx, ry, rz].
             linear: If True (default), use Cartesian linear moves (moveL).
                 If False, use joint-space moves (moveJ).
-            blend_radius: Blending radius in meters (default 0.0 = stop
-                at each point). Typical values: 0.001-0.1 (1mm-100mm).
-                Applied to intermediate points only.
+            blend_radius: Currently ignored. Kept for API compatibility.
             vel: Velocity override. Falls back to default_vel.
             acc: Acceleration override. Falls back to default_acc.
-            asynchronous: If True, sequence runs in background and method
-                returns immediately (default False).
+            asynchronous: Currently ignored.
 
         Raises:
             MotionError: If the sequence fails or fewer than 2 targets.
@@ -1227,10 +1223,6 @@ class URRobot:
         Example:
             >>> # Move through waypoints, stop at each
             >>> robot.move_sequence(["a", "b", "c"])
-            >>> # Smooth path with 2cm corner blending
-            >>> robot.move_sequence(["a", "b", "c"], blend_radius=0.02)
-            >>> # Joint-space sequence with blending
-            >>> robot.move_sequence(["a", "b", "c"], linear=False, blend_radius=0.05)
         """
         self._check_connection()
         self._disable_freedrive_guard()
@@ -1243,32 +1235,23 @@ class URRobot:
         v = vel if vel is not None else self._default_vel
         a = acc if acc is not None else self._default_acc
 
-        # Import here to avoid hard dependency at module level.
-        from rtde_control import Path, PathEntry  # noqa: N812
-
-        path = Path()
-        move_type = PathEntry.MoveL if linear else PathEntry.MoveJ
-
         for i, target in enumerate(targets):
             point = self._lookup_point(target)
-            # First and last points: no blending (stop cleanly).
-            # Intermediate points: use the configured blend radius.
-            r = blend_radius if (0 < i < len(targets) - 1) else 0.0
-            entry_data = list(point.pose) + [v, a, r]
-            path.add_entry(
-                PathEntry(move_type, PathEntry.PositionTcpPose, entry_data)
-            )
             label = (
                 f"'{target}'" if isinstance(target, str) else str(target[:3])
             )
             logger.info(
-                "move_sequence: %s (r=%.3f) (%d/%d)", label, r, i + 1, len(targets)
+                "move_sequence: %s (%d/%d)", label, i + 1, len(targets)
             )
-
-        try:
-            self._rtde_c.movePath(path, not asynchronous)
-        except Exception as e:
-            raise MotionError(f"move_sequence failed: {e}")
+            try:
+                if linear:
+                    self._rtde_c.moveL(list(point.pose), v, a)
+                else:
+                    self._rtde_c.moveJ_IK(
+                        list(point.pose), self._rtde_r.getActualQ(), v, a
+                    )
+            except Exception as e:
+                raise MotionError(f"move_sequence failed at target {i}: {e}")
 
     def zero_ft_sensor(self) -> None:
         """Zero the robot's force/torque sensor.
@@ -1285,11 +1268,17 @@ class URRobot:
 
     def move_until_contact(
         self,
-        speed_vector: list[float],
+        speed_vector: list[float] | None = None,
         *,
         threshold: float = 5.0,
         acceleration: float = 0.1,
         zero_first: bool = True,
+        speed_x: float = 0.0,
+        speed_y: float = 0.0,
+        speed_z: float = 0.0,
+        speed_rx: float = 0.0,
+        speed_ry: float = 0.0,
+        speed_rz: float = 0.0,
     ) -> None:
         """Move until contact is detected via TCP force sensing.
 
@@ -1299,23 +1288,34 @@ class URRobot:
         Args:
             speed_vector: 6-element speed vector
                 ``[vx, vy, vz, vRoll, vPitch, dYaw]`` in m/s and rad/s.
+                Mutually exclusive with individual speed_* parameters.
             threshold: Force/torque delta (N or Nm) that triggers contact.
                 Contact fires when any wrench component changes by more
                 than this value from the baseline reading.
             acceleration: Acceleration limit passed to ``speedL()`` in m/s².
             zero_first: If True (default), zero the FT sensor before reading
                 the baseline. Set to False if you need absolute force values.
+            speed_x, speed_y, speed_z: Linear speed components in m/s.
+            speed_rx, speed_ry, speed_rz: Angular speed components in rad/s.
 
         Example:
-            >>> # Move straight down until contact (zeros FT sensor first)
+            >>> # Move straight down until contact
+            >>> robot.move_until_contact(speed_z=-0.02)
+            >>> # Using full speed vector
             >>> robot.move_until_contact([0, 0, -0.02, 0, 0, 0])
             >>> # Higher threshold for heavier contact
-            >>> robot.move_until_contact([0, 0, -0.02, 0, 0, 0], threshold=10.0)
+            >>> robot.move_until_contact(speed_z=-0.02, threshold=10.0)
         """
         self._check_connection()
         self._disable_freedrive_guard()
+
+        if speed_vector is not None:
+            final_vector = speed_vector
+        else:
+            final_vector = [speed_x, speed_y, speed_z, speed_rx, speed_ry, speed_rz]
+
         self._motion.move_until_contact(
-            speed_vector,
+            final_vector,
             threshold=threshold,
             acceleration=acceleration,
             zero_first=zero_first,

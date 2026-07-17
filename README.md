@@ -421,24 +421,27 @@ robot.move_relative(delta_z=0.05, frame=MoveFrame.TOOL)  # 5cm along tool Z
 robot.move_relative([0, 0.01, 0, 0, 0, 0])
 ```
 
-#### Sequences with Blending
+#### Sequences
 
 ```python
+# Chain multiple moves into one call
 robot.move_sequence(["a", "b", "c"])
-robot.move_sequence(["a", "b", "c"], blend_radius=0.02)
 ```
 
 #### Contact Detection
 
 ```python
-# Zeros FT sensor automatically, then moves until force exceeds threshold
-robot.move_until_contact([0, 0, -0.02, 0, 0, 0])
+# Move straight down until contact (zeros FT sensor automatically)
+robot.move_until_contact(speed_z=-0.02)
 
 # Custom threshold (default: 5.0 N/Nm)
-robot.move_until_contact([0, 0, -0.02, 0, 0, 0], threshold=10.0)
+robot.move_until_contact(speed_z=-0.02, threshold=10.0)
 
 # Skip zeroing if you need absolute force values
-robot.move_until_contact([0, 0, -0.02, 0, 0, 0], zero_first=False)
+robot.move_until_contact(speed_z=-0.02, zero_first=False)
+
+# Full speed vector
+robot.move_until_contact([0, 0, -0.02, 0, 0, 0])
 
 # Manual zero (e.g. before custom force-based logic)
 robot.zero_ft_sensor()

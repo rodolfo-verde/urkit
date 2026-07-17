@@ -7,6 +7,7 @@ velocity and acceleration override.
 
 from __future__ import annotations
 
+import io
 import logging
 import os
 import sys
@@ -511,14 +512,26 @@ class Motion:
             else:
                 raise MotionError(f"Unknown freedrive mode: {mode}")
 
-            feature = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0]  # base coordinate frame
-            success = self._rtde_c.freedriveMode(free_axes, feature)
+            center = list(self._rtde_r.getActualTCPPose())
+            # Capture stderr from ur_rtde C++ library to surface robot errors
+            stderr_buf = io.StringIO()
+            old_stderr = sys.stderr
+            sys.stderr = stderr_buf
+            try:
+                success = self._rtde_c.freedriveMode(free_axes, center)
+            finally:
+                sys.stderr = old_stderr
+            stderr_text = stderr_buf.getvalue().strip()
+
             if not success:
+                detail = stderr_text if stderr_text else "no detail from robot"
                 raise MotionError(
-                    f"freedriveMode returned false (mode={mode.name})"
+                    f"freedriveMode returned false (mode={mode.name}): {detail}"
                 )
             self._freedrive_active = True
             logger.info("Freedrive mode enabled (%s)", mode.name)
+        except MotionError:
+            raise
         except Exception as e:
             raise MotionError(
                 f"Failed to enable freedrive mode: {e}"
