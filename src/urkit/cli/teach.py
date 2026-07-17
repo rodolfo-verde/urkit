@@ -25,7 +25,7 @@ from pathlib import Path
 
 import yaml
 
-from urkit import load_config, resolve_config
+from urkit import load_config
 from urkit.cli.colors import blue, cyan, dim, green, red, yellow
 from urkit.cli.connection_monitor import ConnectionMonitor
 from urkit.cli.points import _interactive_points_filter
@@ -54,10 +54,10 @@ _cli_monitor: "ConnectionMonitor | None" = None
 
 # Default configuration path — resolved relative to the calling script's directory
 def _resolve_default_config_path() -> Path:
-    """Resolve the default config.yaml path for save operations."""
-    resolved = resolve_config()
-    if resolved is not None:
-        return resolved
+    """Resolve the default config.yaml path for save operations.
+
+    Always saves to CWD so the config follows the user, not the package.
+    """
     return Path.cwd() / "config.yaml"
 
 # Default step sizes
