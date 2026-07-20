@@ -476,6 +476,23 @@ robot.get_speed_slider()              # read current slider (0.0-1.0)
 
 The speed slider controls the pendant's speed multiplier. It's global, persistent, and affects all motion commands.
 
+#### Changing Default Speed & Acceleration
+
+Override the constructor defaults at runtime — all subsequent moves pick up the new values:
+
+```python
+robot.set_speed(0.1)   # slow for precision work
+robot.move_to("insert")
+robot.set_speed(0.5)   # back to normal
+
+robot.set_acc(0.05)    # gentle acceleration
+
+robot.default_vel      # read current velocity (m/s)
+robot.default_acc      # read current acceleration (m/s²)
+```
+
+Soft warnings log when values exceed typical robot limits (> 2 m/s for velocity, > 6 m/s² for acceleration). The controller may clamp aggressive values based on payload and configuration.
+
 #### Inverse Kinematics
 
 ```python

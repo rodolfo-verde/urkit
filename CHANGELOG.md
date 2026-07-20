@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.16] — 2026-07-15
+
+### Added
+- `set_speed(vel)` and `set_acc(acc)` to change default velocity and acceleration at runtime — all subsequent moves pick up new values
+- `default_vel` and `default_acc` read-only properties on `URRobot`
+- Soft warnings when values exceed typical limits (> 2 m/s velocity, > 6 m/s² acceleration)
+
 ## [0.3.15] — 2026-07-15
 
 ### Fixed

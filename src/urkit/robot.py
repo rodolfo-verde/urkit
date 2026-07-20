@@ -1373,6 +1373,79 @@ class URRobot:
         return self._telemetry.get_speed_slider()
 
     # ------------------------------------------------------------------
+    # Velocity / acceleration defaults
+    # ------------------------------------------------------------------
+
+    @property
+    def default_vel(self) -> float:
+        """Current default velocity (m/s) for motion commands."""
+        return self._default_vel
+
+    @property
+    def default_acc(self) -> float:
+        """Current default acceleration (m/s²) for motion commands."""
+        return self._default_acc
+
+    def set_speed(self, vel: float) -> None:
+        """Change the default velocity for subsequent motions.
+
+        Updates both the URRobot-level default and the internal
+        Motion instance so that ``move_to``, ``move_relative``, etc.
+        pick up the new value when no per-call override is given.
+
+        Args:
+            vel: Linear velocity in m/s (must be > 0).
+
+        Raises:
+            MotionError: If vel is <= 0.
+
+        Example:
+            >>> robot.set_speed(0.1)  # slow for precision
+            >>> robot.move_to("insert")
+            >>> robot.set_speed(0.5)  # back to normal
+        """
+        if vel <= 0:
+            raise MotionError(f"vel must be > 0, got {vel}.")
+        if vel > 2.0:
+            logger.warning(
+                "set_speed(%s): %.1f m/s exceeds typical TCP speed limits "
+                "(UR3e/5e/10e: ~1–2 m/s). The controller may clamp this value.",
+                vel,
+                vel,
+            )
+        self._default_vel = vel
+        self._motion._default_vel = vel
+
+    def set_acc(self, acc: float) -> None:
+        """Change the default acceleration for subsequent motions.
+
+        Updates both the URRobot-level default and the internal
+        Motion instance so that ``move_to``, ``move_relative``, etc.
+        pick up the new value when no per-call override is given.
+
+        Args:
+            acc: Linear acceleration in m/s² (must be > 0).
+
+        Raises:
+            MotionError: If acc is <= 0.
+
+        Example:
+            >>> robot.set_acc(0.05)  # gentle acceleration
+            >>> robot.move_to("insert")
+        """
+        if acc <= 0:
+            raise MotionError(f"acc must be > 0, got {acc}.")
+        if acc > 6.0:
+            logger.warning(
+                "set_acc(%s): %.1f m/s² is high. The controller may clamp "
+                "this value based on payload and configuration.",
+                acc,
+                acc,
+            )
+        self._default_acc = acc
+        self._motion._default_acc = acc
+
+    # ------------------------------------------------------------------
     # Kinematics
     # ------------------------------------------------------------------
 
