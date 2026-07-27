@@ -5,6 +5,11 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.18] — 2026-07-27
+
+### Fixed
+- Teach CLI (`urkit teach`) now applies `gripper_config` overrides (`tcp_offset`, `mass`, `center_of_gravity`) from config.yaml to preset grippers — previously it used raw preset defaults, causing position mismatches between CLI-saved points and `from_config()` execution
+
 ## [0.3.17] — 2026-07-27
 
 ### Added

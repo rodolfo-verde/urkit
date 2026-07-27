@@ -11,6 +11,7 @@ Usage:
 
 from __future__ import annotations
 
+from dataclasses import replace
 import ipaddress
 import logging
 import math
@@ -1395,10 +1396,20 @@ def teach_command(args) -> None:
         gripper_kwargs["close_on_high"] = cfg["close_on_high"]  # type: ignore
 
     # Resolve gripper string to config object
+    # Apply physical overrides (tcp_offset, mass, center_of_gravity) from
+    # config.yaml gripper_config section — same as URRobot.from_config()
+    physical_overrides = ("tcp_offset", "mass", "center_of_gravity")
+    physical_kwargs: dict = {}
+    for key in physical_overrides:
+        if key in cfg:  # type: ignore
+            physical_kwargs[key] = cfg[key]  # type: ignore
+
     gripper_config = None
     if gripper_name:
         preset = PRESETS.get(gripper_name.upper())  # type: ignore
         if preset is not None:
+            if physical_kwargs:
+                preset = replace(preset, **physical_kwargs)
             gripper_config = preset
         elif gripper_name == "digital":
             gripper_config = DigitalGripperConfig(  # type: ignore
