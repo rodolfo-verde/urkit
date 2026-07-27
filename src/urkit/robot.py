@@ -6,6 +6,7 @@ and named point management into a single high-level interface.
 
 from __future__ import annotations
 
+from dataclasses import replace
 import logging
 import sys
 import time
@@ -360,27 +361,36 @@ class URRobot:
             points: Path to points database. Overrides ``points_path`` from config.
             gripper: A GripperPreset, DigitalGripperConfig, a preset name
                 string (e.g. ``"hand-e"``, ``"2f-85"``, ``"digital"``),
-                or ``None``. Overrides the ``gripper`` key from config.
+                a dict defining a custom gripper, or ``None``. Overrides
+                the ``gripper`` key from config.
             default_vel: Default linear velocity (m/s).
             default_acc: Default linear acceleration (m/s²).
             gripper_kwargs: Overrides for gripper preset values
-                (e.g. ``max_mm``, ``force``, ``speed``, ``pin``).
+                (e.g. ``max_mm``, ``force``, ``speed``, ``pin``,
+                ``mass``, ``center_of_gravity``, ``tcp_offset``).
 
         Config file keys::
 
+            # Built-in preset (string)
             robot_ip: 192.168.1.50
             points_path: points.db
             gripper: hand-e
             gripper_config:
+                mass: 1.5
                 force: 50
-                speed: 80
-            default_vel: 0.5
-            default_acc: 0.3
+
+            # Custom gripper (dict) — arbitrary payload + TCP offset
+            robot_ip: 192.168.1.50
+            gripper:
+                mass: 0.5
+                center_of_gravity: [0.0, 0.0, 0.0]
+                tcp_offset: [0.0, 0.0, 0.175, 0.0, 0.0, 0.0]
+                backend: none
 
         Example:
             >>> robot = URRobot.from_config("config.yaml")
             >>> robot = URRobot.from_config("config.yaml", ip="10.0.0.50")
-            >>> robot = URRobot.from_config({"robot_ip": "192.168.1.50", "points_path": "points.db", "gripper": "2f-85"})
+            >>> robot = URRobot.from_config({"robot_ip": "192.168.1.50", "gripper": {"name": "tool", "mass": 0.5, "center_of_gravity": [0, 0, 0], "tcp_offset": [0, 0, 0.1, 0, 0, 0], "backend": "none"}})
         """
         if isinstance(config, str):
             resolved = resolve_config(config)
@@ -413,6 +423,18 @@ class URRobot:
         if gripper_source is not None:
             if isinstance(gripper_source, (GripperPreset, DigitalGripperConfig)):
                 resolved_gripper = gripper_source
+            elif isinstance(gripper_source, dict):
+                # Custom gripper defined inline in YAML as a dict
+                resolved_gripper = GripperPreset(
+                    name=str(gripper_source.get("name", "custom")),
+                    mass=float(gripper_source.get("mass", 0.0)),
+                    center_of_gravity=list(gripper_source.get("center_of_gravity", [0.0, 0.0, 0.0])),
+                    tcp_offset=list(gripper_source.get("tcp_offset", [0.0, 0.0, 0.0, 0.0, 0.0, 0.0])),
+                    backend=str(gripper_source.get("backend", "none")),
+                    max_mm=int(gripper_source.get("max_mm", 50)),
+                    force=int(gripper_source.get("force", 100)),
+                    speed=int(gripper_source.get("speed", 100)),
+                )
             elif isinstance(gripper_source, str):
                 key = gripper_source.strip().upper()
                 preset = PRESETS.get(key)
@@ -431,9 +453,31 @@ class URRobot:
 
         # Merge config gripper overrides into gripper_kwargs.
         # Check nested gripper_config first, then top-level for backwards compat.
-        gripper_overrides = ("max_mm", "force", "speed", "pin", "close_on_high")
         nested_cfg = cfg.get("gripper_config") or {}
-        for key in gripper_overrides:
+
+        # Physical properties override the GripperPreset directly via replace()
+        physical_overrides = ("mass", "center_of_gravity", "tcp_offset")
+        for key in physical_overrides:
+            if key not in gripper_kwargs:
+                value = nested_cfg.get(key, cfg.get(key))  # type: ignore
+                if value is not None:
+                    gripper_kwargs[key] = value
+
+        # Apply physical overrides to the resolved preset
+        if isinstance(resolved_gripper, GripperPreset):
+            apply_replace: dict[str, object] = {}
+            if "mass" in gripper_kwargs:
+                apply_replace["mass"] = float(gripper_kwargs.pop("mass"))
+            if "center_of_gravity" in gripper_kwargs:
+                apply_replace["center_of_gravity"] = list(gripper_kwargs.pop("center_of_gravity"))
+            if "tcp_offset" in gripper_kwargs:
+                apply_replace["tcp_offset"] = list(gripper_kwargs.pop("tcp_offset"))
+            if apply_replace:
+                resolved_gripper = replace(resolved_gripper, **apply_replace)  # type: ignore[arg-type]
+
+        # Standard gripper kwargs (passed to Gripper.create)
+        standard_overrides = ("max_mm", "force", "speed", "pin", "close_on_high")
+        for key in standard_overrides:
             if key not in gripper_kwargs:
                 value = nested_cfg.get(key, cfg.get(key))  # type: ignore
                 if value is not None:

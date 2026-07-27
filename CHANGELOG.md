@@ -5,7 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.3.16] — 2026-07-15
+## [0.3.17] — 2026-07-27
+
+### Added
+- YAML config `gripper` key now accepts a dict for custom gripper/payload definitions — define arbitrary mass, center of gravity, and TCP offset without code
+- `gripper_config` overrides now support physical properties (`mass`, `center_of_gravity`, `tcp_offset`) to override built-in preset values
+
+## [0.3.16] — 2026-07-20
 
 ### Added
 - `set_speed(vel)` and `set_acc(acc)` to change default velocity and acceleration at runtime — all subsequent moves pick up new values
