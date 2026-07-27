@@ -398,6 +398,43 @@ robot.move_relative(delta_z=0.05)  # 5cm along tool Z
 - **BASE** (default): delta relative to robot base
 - **TOOL**: delta relative to TCP orientation
 
+#### IK Reference (recommended)
+
+**Problem:** When the robot has multiple valid joint configurations to reach the same TCP pose (e.g., elbow up vs. elbow down), it can unexpectedly flip its posture between moves. This is called an **IK ambiguity** and it causes "weird" movements where the robot takes a strange path or flips its wrist.
+
+**Solution:** Set an **IK reference posture** — a saved point that defines your preferred arm configuration. The robot then stays close to that posture for all moves.
+
+```python
+# 1. Put the robot in your preferred posture (e.g., "home")
+# 2. Save it: robot.save_point("home")
+# 3. Set as IK reference:
+robot.ik_reference = "home"
+
+# Now all moves stay close to that posture — no elbow flipping
+robot.move_to("pick")
+robot.move_to("place")
+robot.move_relative(delta_z=-0.05)
+```
+
+**In config.yaml** (recommended for permanent setup):
+
+```yaml
+robot_ip: 192.168.1.50
+ik_reference: home    # prevents weird elbow/wrist flips
+```
+
+**How it works:** The robot's inverse kinematics solver uses the reference posture as a bias (`qnear`). The TCP still reaches the exact same pose, but the arm configuration (elbow up/down, wrist orientation) stays consistent with your reference.
+
+**Per-move override:**
+
+```python
+robot.ik_reference = "home"                    # global default
+robot.move_to("weird_pose", ik_reference=None) # one move without it
+robot.move_to("back", ik_reference="current") # use current joints
+```
+
+**When to use it:** Almost always. If you've ever seen the robot move in a way that looked "wrong" or flipped its elbow unexpectedly, this is what fixes it. Set it once in config.yaml and forget about it.
+
 #### Points are tool-agnostic
 
 Points are stored in the active TCP frame, so they work with any tool. If you swap grippers and set the correct TCP offset, your saved points remain valid.
@@ -563,6 +600,7 @@ URKit searches for `config.yaml` in this order:
 | `robot_ip` | Robot IP address | `192.168.1.50` |
 | `points_path` | Path to SQLite points database | `points.db` |
 | `gripper` | Gripper preset name | `hand-e`, `2f-85`, `2f-140`, `digital` |
+| `ik_reference` | IK reference posture (prevents elbow flipping) | `home` |
 | `default_vel` | Default linear velocity (m/s) | `0.5` |
 | `default_acc` | Default linear acceleration (m/s²) | `0.3` |
 | `expert_mode` | Disable safety speed clamping | `false` |

@@ -1386,6 +1386,12 @@ def teach_command(args) -> None:
     if gripper_name and isinstance(gripper_name, str):
         gripper_name = gripper_name.lower().replace("_", "-")
     points_path = args.points or config.get("points_path") or "points.db"
+    raw_ik = config.get("ik_reference")
+    ik_reference: str | list[float] | None = None
+    if isinstance(raw_ik, str):
+        ik_reference = raw_ik
+    elif isinstance(raw_ik, list) and len(raw_ik) == 6:
+        ik_reference = raw_ik
 
     # Resolve gripper constructor params from config.yaml gripper_config section
     # and CLI --gripper-* flags (CLI overrides config)
@@ -1454,6 +1460,8 @@ def teach_command(args) -> None:
     if gripper_name:
         print(f"  Gripper: {gripper_name}")
     print(f"  Points:  {points_path}")
+    if ik_reference:
+        print(f"  IK ref:  {ik_reference}")
 
     # URRobot handles everything: safety recovery, remote mode check,
     # power on, brake release, program stop, and RTDE connection.
@@ -1462,6 +1470,7 @@ def teach_command(args) -> None:
             ip=ip,  # type: ignore
             points=points_path,  # type: ignore
             gripper=gripper_config,
+            ik_reference=ik_reference,
             **gripper_kwargs,
         )
         print("  Connected.", flush=True)

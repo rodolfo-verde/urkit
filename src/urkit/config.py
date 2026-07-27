@@ -60,6 +60,7 @@ Full config reference::
         max_mm: 50                   # finger travel
     default_vel: 0.5                 # m/s
     default_acc: 0.3                 # m/s²
+    ik_reference: home               # point name for IK reference posture
     expert_mode: false               # show advanced CLI commands
 """
 

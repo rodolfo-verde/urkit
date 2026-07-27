@@ -5,6 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.20] — 2026-07-27
+
+### Added
+- Global `ik_reference` setting on `URRobot` — set once, applies to all motion commands (`move_to`, `move_relative`, `move_sequence`) to prevent elbow/wrist flipping (IK ambiguity)
+- `ik_reference` in config.yaml and `from_config()` — persistent setup without code changes
+- `ik_reference` in CLI teach pendant — reads from config.yaml, shows at boot
+- Per-call `ik_reference` parameter on `move_to()`, `move_relative()`, `move_sequence()` — override global default per move
+- README documentation with recommendation to always use `ik_reference` for stable motion
+
 ## [0.3.19] — 2026-07-27
 
 ### Changed

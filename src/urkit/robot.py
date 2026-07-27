@@ -10,7 +10,7 @@ from dataclasses import replace
 import logging
 import sys
 import time
-from typing import TYPE_CHECKING, Optional, Union
+from typing import TYPE_CHECKING, Literal, Optional, Union
 from pathlib import Path
 
 if TYPE_CHECKING:
@@ -89,6 +89,26 @@ class URRobot:
             Presets provide mass, CoG, TCP offset, and backend type.
         default_vel: Default linear velocity (m/s).
         default_acc: Default linear acceleration (m/s²).
+        ik_reference: Global reference posture for inverse kinematics.
+            One of:
+
+            - ``None`` (default): No IK reference — the controller picks
+              the IK solution closest to the current joint positions.
+            - ``"current"``: Use the robot's current joint positions
+              as the reference.
+            - A point name (str): Look up the saved point, resolve its
+              pose to joints, and use as the reference. If the point
+              doesn't exist, logs a warning and falls back to current
+              joint positions.
+            - A 6-element list: Use directly as joint angles.
+
+            When set, all motion commands (``move_to``, ``move_relative``,
+            ``move_sequence``) resolve target poses to joint angles using
+            this reference, preventing the robot from unexpectedly flipping
+            its elbow or wrist. Can be overridden per-call by passing
+            ``ik_reference`` to individual motion methods.
+
+            Can be changed at runtime via the ``ik_reference`` property.
         gripper_kwargs: Additional kwargs passed to the gripper backend
             to override preset values (e.g. ``max_mm=80`` for custom
             fingers, ``force=50``, ``speed=80`` for Robotiq).
@@ -99,6 +119,8 @@ class URRobot:
         >>> robot.move_relative([0.01, 0, 0, 0, 0, 0])  # works without points
         >>> robot.points_db = "points.db"  # set lazily
         >>> robot.save_point("home")
+        >>> robot.ik_reference = "home"  # prevent elbow flipping
+        >>> robot.move_to("pick")  # uses home as IK reference
     """
 
     def __init__(
@@ -109,6 +131,7 @@ class URRobot:
         gripper: GripperPreset | DigitalGripperConfig | None = None,
         default_vel: float = 0.5,
         default_acc: float = 0.3,
+        ik_reference: str | list[float] | None = None,
         **gripper_kwargs: object,
     ) -> None:
         self._ip = ip
@@ -117,6 +140,7 @@ class URRobot:
         self._rtde_frequency = 500.0
         self._connection_lost = False
         self._move_frame: MoveFrame = MoveFrame.BASE
+        self._ik_reference: str | list[float] | None = ik_reference
 
         # Target tracking for pose-based arrival detection in is_moving()
         self._move_target_pose: list[float] | None = None
@@ -352,6 +376,7 @@ class URRobot:
         gripper: GripperPreset | DigitalGripperConfig | str | None = None,
         default_vel: float | None = None,
         default_acc: float | None = None,
+        ik_reference: str | list[float] | None = None,
         **gripper_kwargs,
     ) -> "URRobot":
         """Create a URRobot from a YAML config file or dict.
@@ -369,6 +394,8 @@ class URRobot:
                 the ``gripper`` key from config.
             default_vel: Default linear velocity (m/s).
             default_acc: Default linear acceleration (m/s²).
+            ik_reference: IK reference posture name. Overrides the
+                ``ik_reference`` key from config.
             gripper_kwargs: Overrides for gripper preset values
                 (e.g. ``max_mm``, ``force``, ``speed``, ``pin``,
                 ``mass``, ``center_of_gravity``, ``tcp_offset``).
@@ -379,6 +406,7 @@ class URRobot:
             robot_ip: 192.168.1.50
             points_path: points.db
             gripper: hand-e
+            ik_reference: home  # prevent elbow flipping
             gripper_config:
                 mass: 1.5
                 force: 50
@@ -487,12 +515,24 @@ class URRobot:
                 if value is not None:
                     gripper_kwargs[key] = value
 
+        # Resolve ik_reference: explicit kwarg > config > None
+        resolved_ik: str | list[float] | None = None
+        if ik_reference is not None:
+            resolved_ik = ik_reference
+        else:
+            cfg_ik = cfg.get("ik_reference")
+            if isinstance(cfg_ik, str):
+                resolved_ik = cfg_ik
+            elif isinstance(cfg_ik, list) and len(cfg_ik) == 6:
+                resolved_ik = cfg_ik
+
         return cls(
             ip=resolved_ip,
             points=resolved_points,
             gripper=resolved_gripper,
             default_vel=default_vel if default_vel is not None else cfg.get("default_vel", 0.5),  # type: ignore
             default_acc=default_acc if default_acc is not None else cfg.get("default_acc", 0.3),  # type: ignore
+            ik_reference=resolved_ik,
             **gripper_kwargs,
         )
 
@@ -1013,6 +1053,7 @@ class URRobot:
         offset_rx: float = 0.0,
         offset_ry: float = 0.0,
         offset_rz: float = 0.0,
+        ik_reference: str | list[float] | None | Literal["__global__"] = "__global__",
     ) -> None:
         """Move to a saved point or raw pose.
 
@@ -1020,7 +1061,9 @@ class URRobot:
             target: A saved point name (str) or a raw TCP pose
                 [x, y, z, rx, ry, rz].
             linear: If True (default), use Cartesian linear move (moveL).
-                If False, use joint-space move (moveJ).
+                If False, use joint-space move (moveJ). When an IK
+                reference is active, the pose is resolved to joints
+                and a joint-space move is used regardless of this flag.
             offset: Optional offset [dx, dy, dz, drx, dry, drz]
                 applied to the target pose before moving. Mutually
                 exclusive with individual offset_* parameters.
@@ -1036,6 +1079,15 @@ class URRobot:
             offset_rx: Roll offset in radians (default 0.0).
             offset_ry: Pitch offset in radians (default 0.0).
             offset_rz: Yaw offset in radians (default 0.0).
+            ik_reference: Per-call IK reference override. One of:
+
+                - ``"__global__"`` (default): Use the robot's global
+                  ``ik_reference`` setting.
+                - ``None``: Explicitly disable IK reference for this
+                  move (use controller's default behavior).
+                - ``"current"``: Use current joint positions.
+                - A point name (str): Look up and resolve to joints.
+                - A 6-element list: Use directly as joint angles.
 
         Raises:
             MotionError: If the move fails or IK has no solution.
@@ -1048,6 +1100,8 @@ class URRobot:
             >>> robot.move_to("pick", offset_x=0.01, offset_z=-0.02)
             >>> robot.move_to("pick", offset=[0, 0, 0.05, 0, 0.1, 0])  # full
             >>> robot.move_to([0.5, 0, 0.3, 0, 0, 0])  # raw pose
+            >>> robot.move_to("pick", ik_reference="home")  # per-call override
+            >>> robot.move_to("pick", ik_reference=None)  # disable for one move
         """
         self._check_connection()
         self._disable_freedrive_guard()
@@ -1082,22 +1136,32 @@ class URRobot:
         vel = vel if vel is not None else self._default_vel
         acc = acc if acc is not None else self._default_acc
 
-        # Store target for pose-based arrival detection
-        if linear:
-            self._move_target_pose = list(pose)
-            self._move_target_joints = None
-        else:
-            self._move_target_joints = None  # set below after IK
-            self._move_target_pose = list(pose)
+        # Resolve effective ik_reference: per-call > global
+        effective_ik = (
+            self._ik_reference if ik_reference == "__global__" else ik_reference
+        )
 
         try:
-            if linear:
+            if effective_ik is not None:
+                # IK reference active: resolve pose to joints with qnear,
+                # then moveJ (prevents elbow/wrist flipping)
+                qnear = self._resolve_ik_reference(effective_ik)
+                joints = self.inverse_kinematics(pose, seed=qnear)
+                self._move_target_joints = list(joints)
+                self._move_target_pose = list(pose)
+                self._motion.movej(joints, vel=vel, acc=acc, asynchronous=asynchronous)
+            elif linear:
+                # No IK reference, linear mode: standard moveL
                 if not self._rtde_c.getInverseKinematicsHasSolution(pose):
                     raise MotionError(f"Pose unreachable: {pose}")
+                self._move_target_pose = list(pose)
+                self._move_target_joints = None
                 self._motion.movel(pose, vel=vel, acc=acc, asynchronous=asynchronous)
             else:
+                # No IK reference, joint mode: resolve IK without qnear
                 joints = self.inverse_kinematics(pose)
                 self._move_target_joints = list(joints)
+                self._move_target_pose = list(pose)
                 self._motion.movej(joints, vel=vel, acc=acc, asynchronous=asynchronous)
         except MotionError:
             raise
@@ -1212,6 +1276,7 @@ class URRobot:
         delta_rx: float = 0.0,
         delta_ry: float = 0.0,
         delta_rz: float = 0.0,
+        ik_reference: str | list[float] | None | Literal["__global__"] = "__global__",
     ) -> None:
         """Relative Cartesian move from the current position.
 
@@ -1222,7 +1287,9 @@ class URRobot:
             delta: [dx, dy, dz, drx, dry, drz] in meters/radians.
                 Mutually exclusive with individual delta_* parameters.
             linear: If True (default), use Cartesian linear move.
-                If False, solve IK and use joint-space move.
+                If False, solve IK and use joint-space move. When an IK
+                reference is active, the pose is resolved to joints
+                and a joint-space move is used regardless of this flag.
             frame: Coordinate frame for the delta. Falls back to the
                 current ``move_frame`` property (BASE or TOOL).
             vel: Velocity override. Falls back to default_vel.
@@ -1235,6 +1302,15 @@ class URRobot:
             delta_rx: Roll delta in radians (default 0.0).
             delta_ry: Pitch delta in radians (default 0.0).
             delta_rz: Yaw delta in radians (default 0.0).
+            ik_reference: Per-call IK reference override. One of:
+
+                - ``"__global__"`` (default): Use the robot's global
+                  ``ik_reference`` setting.
+                - ``None``: Explicitly disable IK reference for this
+                  move (use controller's default behavior).
+                - ``"current"``: Use current joint positions.
+                - A point name (str): Look up and resolve to joints.
+                - A 6-element list: Use directly as joint angles.
 
         Raises:
             MotionError: If the move fails.
@@ -1277,28 +1353,90 @@ class URRobot:
         acc = acc if acc is not None else self._default_acc
         effective_frame = frame or self._move_frame
 
+        # Resolve effective ik_reference: per-call > global
+        effective_ik = (
+            self._ik_reference if ik_reference == "__global__" else ik_reference
+        )
+
         try:
             current = list(self._rtde_r.getActualTCPPose())
             target = transform_pose_delta(current, final_delta, effective_frame)
 
-            # Store target for arrival detection
-            if linear:
+            if effective_ik is not None:
+                # IK reference active: resolve pose to joints with qnear
+                qnear = self._resolve_ik_reference(effective_ik)
+                joints = self.inverse_kinematics(target, seed=qnear)
+                self._move_target_joints = list(joints)
+                self._move_target_pose = list(target)
+                self._motion.movej(joints, vel=vel, acc=acc, asynchronous=asynchronous)
+            elif linear:
+                # No IK reference, linear mode: standard moveL
                 self._move_target_pose = list(target)
                 self._move_target_joints = None
-            else:
-                self._move_target_pose = list(target)
-                self._move_target_joints = None
-
-            if linear:
                 self._motion.movel(target, vel=vel, acc=acc, asynchronous=asynchronous)
             else:
+                # No IK reference, joint mode: resolve IK without qnear
                 joints = self.inverse_kinematics(target)
                 self._move_target_joints = list(joints)
+                self._move_target_pose = list(target)
                 self._motion.movej(joints, vel=vel, acc=acc, asynchronous=asynchronous)
         except MotionError:
             raise
         except Exception as e:
             raise MotionError(f"Relative move failed: {e}")
+
+    def _resolve_ik_reference(
+        self,
+        ik_reference: str | list[float],
+    ) -> list[float]:
+        """Resolve an ik_reference specifier to joint angles.
+
+        Args:
+            ik_reference: One of:
+                - ``"current"`` — use the robot's current joint positions.
+                - A point name (str) — look up the point, resolve its pose
+                  to joints via IK. If the point doesn't exist, fall back
+                  to current joint positions with a warning.
+                - A 6-element list — use directly as joint angles.
+
+        Returns:
+            6 joint angles in radians.
+        """
+        if ik_reference == "current":
+            return list(self._rtde_r.getActualQ())
+
+        if isinstance(ik_reference, list) and len(ik_reference) == 6:
+            return list(ik_reference)
+
+        if isinstance(ik_reference, str):
+            # Try to look up as a named point
+            if self._points is None:
+                logger.warning(
+                    "ik_reference='%s': points DB not configured, "
+                    "falling back to current joint positions.",
+                    ik_reference,
+                )
+                return list(self._rtde_r.getActualQ())
+
+            point = self._points.get(ik_reference)
+            if point is None:
+                logger.warning(
+                    "ik_reference='%s': point not found, "
+                    "falling back to current joint positions. "
+                    "Available: %s",
+                    ik_reference,
+                    self._points.list(),
+                )
+                return list(self._rtde_r.getActualQ())
+
+            # Resolve the point's pose to joints (no qnear — just need
+            # a representative joint config for this posture)
+            return self.inverse_kinematics(point.pose)
+
+        raise MotionError(
+            f"ik_reference must be a point name, 'current', or 6 joint "
+            f"angles, got {type(ik_reference).__name__}."
+        )
 
     def move_sequence(
         self,
@@ -1309,29 +1447,79 @@ class URRobot:
         vel: float | None = None,
         acc: float | None = None,
         asynchronous: bool = False,
+        ik_reference: str | list[float] | None | Literal["__global__"] = "__global__",
     ) -> None:
         """Move through a sequence of points.
 
-        Executes each target in order using individual moveL/moveJ calls.
-        Convenience method to condense multiple moves into one call.
+        Executes each target in order. When ``ik_reference`` is provided,
+        all poses are resolved to joint targets using chained inverse
+        kinematics (each pose resolves relative to the previous one),
+        then executed as a single blended joint-space path via
+        ``moveJ(path)``. This prevents the robot from unexpectedly
+        flipping its elbow or wrist between waypoints.
+
+        Without ``ik_reference``, falls back to individual ``moveL``/
+        ``moveJ_IK`` calls (legacy behavior, no blending).
 
         Args:
             targets: List of saved point names or raw poses
                 [x, y, z, rx, ry, rz].
-            linear: If True (default), use Cartesian linear moves (moveL).
-                If False, use joint-space moves (moveJ).
-            blend_radius: Currently ignored. Kept for API compatibility.
+            linear: Used only when ``ik_reference`` is ``None``.
+                If True (default), use Cartesian linear moves (moveL).
+                If False, use joint-space moves (moveJ_IK).
+                Ignored when ``ik_reference`` is set (always uses
+                joint-space path for IK stability).
+            blend_radius: Blend radius in meters. Used only when
+                ``ik_reference`` is set — applied between consecutive
+                waypoints in the joint path. Default 0.0 (stop at each
+                waypoint). When set, the robot rounds corners instead
+                of stopping at intermediate waypoints.
             vel: Velocity override. Falls back to default_vel.
             acc: Acceleration override. Falls back to default_acc.
-            asynchronous: Currently ignored.
+            asynchronous: If True, move runs in background. Used only
+                when ``ik_reference`` is set (path-based moves support
+                async). Ignored in legacy mode.
+            ik_reference: Reference posture for inverse kinematics
+                resolution. One of:
+
+                - ``"__global__"`` (default): Use the robot's global
+                  ``ik_reference`` setting. If the global setting is
+                  ``None``, falls back to legacy behavior.
+                - ``None``: Explicitly disable IK reference for this
+                  sequence (use controller's default behavior).
+                - ``"current"``: Use the robot's current joint
+                  positions as the starting reference.
+                - A point name (str): Look up the saved point,
+                  resolve its pose to joints, and use as the
+                  starting reference. If the point doesn't exist,
+                  falls back to current joint positions with a
+                  warning.
+                - A 6-element list: Use directly as joint angles.
+
+                The reference is **chained** through the sequence:
+                the first pose resolves relative to the reference,
+                the second relative to the first's resolved joints,
+                and so on. This keeps the arm configuration
+                (elbow up/down, wrist orientation) consistent
+                throughout the entire sequence.
 
         Raises:
-            MotionError: If the sequence fails or fewer than 2 targets.
-            PointError: If a named point is not found.
+            MotionError: If the sequence fails, fewer than 2 targets,
+                or IK resolution fails for a pose.
+            PointError: If a named target point is not found.
 
         Example:
-            >>> # Move through waypoints, stop at each
+            >>> # Legacy: individual moveL calls, no IK control
             >>> robot.move_sequence(["a", "b", "c"])
+
+            >>> # IK-stable: resolve to joints, blend between waypoints
+            >>> robot.move_sequence(["a", "b", "c"],
+            ...                      ik_reference="home",
+            ...                      blend_radius=0.02)
+
+            >>> # Start from current posture
+            >>> robot.move_sequence(["a", "b", "c"],
+            ...                      ik_reference="current")
         """
         self._check_connection()
         self._disable_freedrive_guard()
@@ -1344,23 +1532,67 @@ class URRobot:
         v = vel if vel is not None else self._default_vel
         a = acc if acc is not None else self._default_acc
 
-        for i, target in enumerate(targets):
-            point = self._lookup_point(target)
-            label = (
-                f"'{target}'" if isinstance(target, str) else str(target[:3])
-            )
+        # Resolve effective ik_reference: per-call > global
+        effective_ik = (
+            self._ik_reference if ik_reference == "__global__" else ik_reference
+        )
+
+        if effective_ik is not None:
+            # --- IK-stable path mode: resolve all poses to joints,
+            #     build blended joint path, single moveJ(path) call. ---
+            qnear = self._resolve_ik_reference(effective_ik)
+            logger.info("move_sequence: ik_reference resolved to %s", qnear)
+
+            path: list[list[float]] = []
+            for i, target in enumerate(targets):
+                point = self._lookup_point(target)
+                label = (
+                    f"'{target}'" if isinstance(target, str)
+                    else str(target[:3])
+                )
+
+                # Chain qnear: each pose resolves relative to previous
+                joints = self.inverse_kinematics(point.pose, seed=qnear)
+                logger.info(
+                    "move_sequence: %s (%d/%d) → joints %s",
+                    label, i + 1, len(targets),
+                    [f"{j:.3f}" for j in joints],
+                )
+
+                # 9-element path: [j0..j5, velocity, acceleration, blend]
+                # Last waypoint gets blend=0 (come to rest)
+                r = blend_radius if i < len(targets) - 1 else 0.0
+                path.append([*joints, v, a, r])
+                qnear = joints  # chain to next
+
             logger.info(
-                "move_sequence: %s (%d/%d)", label, i + 1, len(targets)
+                "move_sequence: executing blended joint path (%d waypoints, "
+                "blend=%.3f m)", len(path), blend_radius
             )
             try:
-                if linear:
-                    self._rtde_c.moveL(list(point.pose), v, a)
-                else:
-                    self._rtde_c.moveJ_IK(
-                        list(point.pose), self._rtde_r.getActualQ(), v, a
-                    )
+                self._rtde_c.moveJ(path, asynchronous=asynchronous)
             except Exception as e:
-                raise MotionError(f"move_sequence failed at target {i}: {e}")
+                raise MotionError(f"move_sequence path execution failed: {e}")
+        else:
+            # --- Legacy mode: individual moveL/moveJ_IK calls. ---
+            for i, target in enumerate(targets):
+                point = self._lookup_point(target)
+                label = (
+                    f"'{target}'" if isinstance(target, str)
+                    else str(target[:3])
+                )
+                logger.info(
+                    "move_sequence: %s (%d/%d)", label, i + 1, len(targets)
+                )
+                try:
+                    if linear:
+                        self._rtde_c.moveL(list(point.pose), v, a)
+                    else:
+                        self._rtde_c.moveJ_IK(list(point.pose), v, a)
+                except Exception as e:
+                    raise MotionError(
+                        f"move_sequence failed at target {i}: {e}"
+                    )
 
     def zero_ft_sensor(self) -> None:
         """Zero the robot's force/torque sensor.
@@ -1494,6 +1726,34 @@ class URRobot:
     def default_acc(self) -> float:
         """Current default acceleration (m/s²) for motion commands."""
         return self._default_acc
+
+    @property
+    def ik_reference(self) -> str | list[float] | None:
+        """Current global IK reference posture.
+
+        Returns the reference used for inverse kinematics resolution
+        in motion commands. One of:
+
+        - ``None``: No reference (controller picks IK solution).
+        - ``"current"``: Use current joint positions.
+        - A point name (str): Look up and resolve to joints.
+        - A 6-element list: Use directly as joint angles.
+
+        Example:
+            >>> robot.ik_reference = "home"
+            >>> robot.move_to("pick")  # uses home as IK reference
+            >>> robot.ik_reference = None  # disable
+        """
+        return self._ik_reference
+
+    @ik_reference.setter
+    def ik_reference(self, value: str | list[float] | None) -> None:
+        """Set the global IK reference posture.
+
+        Args:
+            value: Reference posture (see getter docstring).
+        """
+        self._ik_reference = value
 
     def set_speed(self, vel: float) -> None:
         """Change the default velocity for subsequent motions.
