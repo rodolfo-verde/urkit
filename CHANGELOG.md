@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.19] — 2026-07-27
+
+### Changed
+- `is_moving()` now uses pose-based arrival detection instead of velocity thresholds — compares current TCP pose to move target (2mm / 2° tolerance) instead of checking joint/TCP velocities, fixing false "still moving" on heavier robots (UR15e, UR20, UR30) with residual vibration
+- Teach CLI goto loop now has a 60s timeout to prevent hanging when robot is already at target
+
 ## [0.3.18] — 2026-07-27
 
 ### Fixed

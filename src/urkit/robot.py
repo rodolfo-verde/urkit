@@ -118,6 +118,10 @@ class URRobot:
         self._connection_lost = False
         self._move_frame: MoveFrame = MoveFrame.BASE
 
+        # Target tracking for pose-based arrival detection in is_moving()
+        self._move_target_pose: list[float] | None = None
+        self._move_target_joints: list[float] | None = None
+
         # Points database (internal) — optional, lazy-initialized
         self._points: Points | None = Points(points) if points is not None else None
 
@@ -1078,6 +1082,14 @@ class URRobot:
         vel = vel if vel is not None else self._default_vel
         acc = acc if acc is not None else self._default_acc
 
+        # Store target for pose-based arrival detection
+        if linear:
+            self._move_target_pose = list(pose)
+            self._move_target_joints = None
+        else:
+            self._move_target_joints = None  # set below after IK
+            self._move_target_pose = list(pose)
+
         try:
             if linear:
                 if not self._rtde_c.getInverseKinematicsHasSolution(pose):
@@ -1085,6 +1097,7 @@ class URRobot:
                 self._motion.movel(pose, vel=vel, acc=acc, asynchronous=asynchronous)
             else:
                 joints = self.inverse_kinematics(pose)
+                self._move_target_joints = list(joints)
                 self._motion.movej(joints, vel=vel, acc=acc, asynchronous=asynchronous)
         except MotionError:
             raise
@@ -1094,13 +1107,29 @@ class URRobot:
             )
             raise MotionError(f"Move to {target_label} failed: {e}")
 
-    def is_moving(self) -> bool:
-        """Check if the robot is currently moving.
+    def is_moving(
+        self,
+        *,
+        position_tolerance: float = 0.002,
+        orientation_tolerance: float = 0.035,
+        joint_tolerance: float = 0.01,
+    ) -> bool:
+        """Check if the robot has arrived at the last move target.
 
-        Returns True if any joint or TCP velocity is non-zero.
+        Compares current TCP pose (or joint angles for joint moves)
+        to the target stored by ``move_to()``. Returns False when
+        within tolerance.
+
+        Args:
+            position_tolerance: Max distance in meters to consider
+                "arrived" (default 2 mm).
+            orientation_tolerance: Max rotation error in radians to
+                consider "arrived" (default ~2 degrees).
+            joint_tolerance: Max per-joint error in radians for joint
+                moves (default ~0.6 degrees).
 
         Returns:
-            True if moving, False if stopped.
+            True if still moving toward target, False if arrived.
 
         Example:
             >>> robot.move_to("home", asynchronous=True)
@@ -1109,15 +1138,38 @@ class URRobot:
             >>> print("Done!")
         """
         try:
-            joint_vel = self._rtde_r.getActualQd()
-            tcp_speed = self._rtde_r.getActualTCPSpeed()
+            # Joint-based: compare current joints to target
+            if self._move_target_joints is not None:
+                current = self._rtde_r.getActualQ()
+                target = self._move_target_joints
+                for c, t in zip(current, target):
+                    if abs(c - t) > joint_tolerance:
+                        return True
+                self._move_target_joints = None
+                self._move_target_pose = None
+                return False
 
-            joint_moving = any(abs(v) > 0.0001 for v in joint_vel)
-            tcp_moving = any(abs(v) > 0.0001 for v in tcp_speed[:3]) or any(
-                abs(v) > 0.0001 for v in tcp_speed[3:]
-            )
+            # Pose-based: compare current TCP pose to target
+            if self._move_target_pose is not None:
+                current = self._rtde_r.getActualTCPPose()
+                target = self._move_target_pose
+                dx = current[0] - target[0]
+                dy = current[1] - target[1]
+                dz = current[2] - target[2]
+                dist = (dx * dx + dy * dy + dz * dz) ** 0.5
 
-            return joint_moving or tcp_moving
+                d_rx = abs(current[3] - target[3])
+                d_ry = abs(current[4] - target[4])
+                d_rz = abs(current[5] - target[5])
+                orient_err = max(d_rx, d_ry, d_rz)
+
+                if dist <= position_tolerance and orient_err <= orientation_tolerance:
+                    self._move_target_pose = None
+                    return False
+                return True
+
+            # No target set — assume not moving
+            return False
         except Exception:
             return False
 
@@ -1136,6 +1188,10 @@ class URRobot:
             self._rtde_c.stopL(5.0, True)
         except Exception:
             pass
+
+        # Clear move targets so is_moving() falls back to velocity check
+        self._move_target_pose = None
+        self._move_target_joints = None
         try:
             self._rtde_c.stopJ(5.0, True)
         except Exception:
@@ -1225,10 +1281,19 @@ class URRobot:
             current = list(self._rtde_r.getActualTCPPose())
             target = transform_pose_delta(current, final_delta, effective_frame)
 
+            # Store target for arrival detection
+            if linear:
+                self._move_target_pose = list(target)
+                self._move_target_joints = None
+            else:
+                self._move_target_pose = list(target)
+                self._move_target_joints = None
+
             if linear:
                 self._motion.movel(target, vel=vel, acc=acc, asynchronous=asynchronous)
             else:
                 joints = self.inverse_kinematics(target)
+                self._move_target_joints = list(joints)
                 self._motion.movej(joints, vel=vel, acc=acc, asynchronous=asynchronous)
         except MotionError:
             raise

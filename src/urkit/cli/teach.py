@@ -738,9 +738,17 @@ def _submenu_goto_point(
         time.sleep(0.05)
 
         # Show dedicated moving screen with monotonic progress
+        # Timeout after 60s in case is_moving() stalls (heavy robot settling,
+        # robot already at target, etc.)
         cancelled = False
+        timed_out = False
         max_progress = 0.0
+        move_start = time.monotonic()
         while robot.is_moving():
+            if time.monotonic() - move_start > 60.0:
+                timed_out = True
+                break
+
             pct, bar = _draw_moving_screen(
                 robot, name, mode_label, start_pose, target_pose, is_cartesian, max_progress
             )
@@ -758,6 +766,11 @@ def _submenu_goto_point(
         if cancelled:
             robot.stop()
             messages.append(f"Move to '{name}' cancelled")
+        elif timed_out:
+            messages.append(
+                f"Moved to '{name}' ({mode_label}) — "
+                "timeout, robot may already have been at target"
+            )
         else:
             messages.append(f"Moved to '{name}' ({mode_label})")
     except URKitConnectionError:
