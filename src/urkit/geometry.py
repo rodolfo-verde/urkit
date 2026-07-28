@@ -90,13 +90,13 @@ def rpy_to_quat(
 def orient_tcp(
     pose: list[float], direction: list[float]
 ) -> list[float]:
-    """Orient TCP along a target direction while preserving tool heading.
+    """Orient TCP along a target direction via minimal relative rotation.
 
-    Points the tool Z-axis along *direction* (base frame) while
-    preserving the tool's heading (X-axis direction projected onto
-    the plane perpendicular to the target). This avoids the ambiguity
-    of RPY yaw at extreme angles and produces a smooth, predictable
-    orientation change.
+    Computes the smallest rotation that maps the current tool Z-axis
+    onto *direction* (in the base frame), then applies that rotation
+    to the current pose. This is a relative rotation from where you
+    are — no absolute frame reconstruction, no heading-preservation
+    heuristics that cause unexpected large swings.
 
     Args:
         pose: [x, y, z, rx, ry, rz] rotation vector pose.
@@ -113,68 +113,65 @@ def orient_tcp(
     norm_d = math.sqrt(direction[0] ** 2 + direction[1] ** 2 + direction[2] ** 2)
     if norm_d < 1e-10:
         raise ValueError(f"Direction vector is zero: {direction}")
-    z_new = [d / norm_d for d in direction]
+    z_target = [d / norm_d for d in direction]
 
-    # Current rotation matrix (columns are X, Y, Z axes)
-    R = _rotvec_to_matrix(rv)
+    # Current rotation matrix (columns are X, Y, Z axes in base frame)
+    R_curr = _rotvec_to_matrix(rv)
 
-    # Current X and Y axes
-    x_curr = [R[0][0], R[1][0], R[2][0]]
-    y_curr = [R[0][1], R[1][1], R[2][1]]
+    # Current tool Z-axis in base frame (3rd column of R_curr)
+    z_curr = [R_curr[i][2] for i in range(3)]
 
-    # Preserve heading: project current X axis onto plane perpendicular to z_new
-    dot_xz = x_curr[0] * z_new[0] + x_curr[1] * z_new[1] + x_curr[2] * z_new[2]
-    x_new = [x_curr[i] - dot_xz * z_new[i] for i in range(3)]
-    norm_x = math.sqrt(x_new[0] ** 2 + x_new[1] ** 2 + x_new[2] ** 2)
+    # Dot product to determine alignment
+    dot_cos = z_curr[0] * z_target[0] + z_curr[1] * z_target[1] + z_curr[2] * z_target[2]
 
-    if norm_x < 1e-6:
-        # X is nearly parallel to target — use Y projection instead
-        dot_yz = y_curr[0] * z_new[0] + y_curr[1] * z_new[1] + y_curr[2] * z_new[2]
-        y_new = [y_curr[i] - dot_yz * z_new[i] for i in range(3)]
-        norm_y = math.sqrt(y_new[0] ** 2 + y_new[1] ** 2 + y_new[2] ** 2)
+    # Already aligned within epsilon
+    if dot_cos > 1.0 - 1e-10:
+        return [pos[0], pos[1], pos[2], rv[0], rv[1], rv[2]]
 
-        if norm_y < 1e-6:
-            # Both parallel — fallback: pick arbitrary orthogonal axis
-            # Use cross product with smallest component of z_new
-            if abs(z_new[0]) <= abs(z_new[1]) and abs(z_new[0]) <= abs(z_new[2]):
-                ref = [1.0, 0.0, 0.0]
-            elif abs(z_new[1]) <= abs(z_new[2]):
-                ref = [0.0, 1.0, 0.0]
-            else:
-                ref = [0.0, 0.0, 1.0]
-            y_new = [
-                z_new[1] * ref[2] - z_new[2] * ref[1],
-                z_new[2] * ref[0] - z_new[0] * ref[2],
-                z_new[0] * ref[1] - z_new[1] * ref[0],
-            ]
-            norm_y = math.sqrt(y_new[0] ** 2 + y_new[1] ** 2 + y_new[2] ** 2)
-
-        y_new[0] /= norm_y
-        y_new[1] /= norm_y
-        y_new[2] /= norm_y
-        # x = y cross z
-        x_new = [
-            y_new[1] * z_new[2] - y_new[2] * z_new[1],
-            y_new[2] * z_new[0] - y_new[0] * z_new[2],
-            y_new[0] * z_new[1] - y_new[1] * z_new[0],
+    # Compute rotation axis and angle
+    if dot_cos < -1.0 + 1e-10:
+        # 180° case — z_curr is opposite z_target, cross product is zero
+        # Pick a reference vector perpendicular to z_curr
+        if abs(z_curr[0]) <= abs(z_curr[1]) and abs(z_curr[0]) <= abs(z_curr[2]):
+            ref = [1.0, 0.0, 0.0]
+        elif abs(z_curr[1]) <= abs(z_curr[2]):
+            ref = [0.0, 1.0, 0.0]
+        else:
+            ref = [0.0, 0.0, 1.0]
+        axis = [
+            z_curr[1] * ref[2] - z_curr[2] * ref[1],
+            z_curr[2] * ref[0] - z_curr[0] * ref[2],
+            z_curr[0] * ref[1] - z_curr[1] * ref[0],
         ]
+        norm_axis = math.sqrt(axis[0] ** 2 + axis[1] ** 2 + axis[2] ** 2)
+        if norm_axis < 1e-10:
+            # Should not happen, but guard against it
+            axis, norm_axis = [1.0, 0.0, 0.0], 1.0
+        ax, ay, az = axis[0] / norm_axis, axis[1] / norm_axis, axis[2] / norm_axis
+        angle = math.pi
     else:
-        x_new[0] /= norm_x
-        x_new[1] /= norm_x
-        x_new[2] /= norm_x
-        # y = z cross x
-        y_new = [
-            z_new[1] * x_new[2] - z_new[2] * x_new[1],
-            z_new[2] * x_new[0] - z_new[0] * x_new[2],
-            z_new[0] * x_new[1] - z_new[1] * x_new[0],
+        # General case: rotation axis = z_curr × z_target
+        cross = [
+            z_curr[1] * z_target[2] - z_curr[2] * z_target[1],
+            z_curr[2] * z_target[0] - z_curr[0] * z_target[2],
+            z_curr[0] * z_target[1] - z_curr[1] * z_target[0],
         ]
+        norm_cross = math.sqrt(cross[0] ** 2 + cross[1] ** 2 + cross[2] ** 2)
+        ax, ay, az = cross[0] / norm_cross, cross[1] / norm_cross, cross[2] / norm_cross
+        angle = math.acos(max(-1.0, min(1.0, dot_cos)))
 
-    # Build rotation matrix from columns [x_new, y_new, z_new]
-    R_new = [
-        [x_new[0], y_new[0], z_new[0]],
-        [x_new[1], y_new[1], z_new[1]],
-        [x_new[2], y_new[2], z_new[2]],
+    # Build delta rotation matrix from axis-angle (Rodrigues)
+    s = math.sin(angle)
+    c = math.cos(angle)
+    oc = 1.0 - c
+    R_delta = [
+        [c + ax*ax*oc, ax*ay*oc - az*s, ax*az*oc + ay*s],
+        [ay*ax*oc + az*s, c + ay*ay*oc, ay*az*oc - ax*s],
+        [az*ax*oc - ay*s, az*ay*oc + ax*s, c + az*az*oc],
     ]
+
+    # Apply delta: R_new = R_delta @ R_curr (rotate current orientation by delta)
+    R_new = _mat_mul(R_delta, R_curr)
 
     rv_target = _matrix_to_rotvec(R_new)
 

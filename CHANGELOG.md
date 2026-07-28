@@ -5,6 +5,11 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.22] — 2026-07-28
+
+### Fixed
+- `orient_tcp(pose, direction)` — replaced heading-preservation heuristic with minimal relative rotation (computes smallest rotation from current Z-axis to target direction). Eliminates unexpectedly large swings (e.g., 104.5° → 90° for yaw=30° to +X)
+
 ## [0.3.21] — 2026-07-28
 
 ### Added

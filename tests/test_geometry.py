@@ -4,12 +4,16 @@ from __future__ import annotations
 
 import math
 
+import pytest
+
 from urkit.geometry import (
+    orient_tcp,
     orient_tcp_down,
     quat_to_rotvec,
     quat_to_rpy,
     rpy_to_quat,
     rotvec_to_quat,
+    _rotvec_to_matrix,
 )
 
 
@@ -128,32 +132,23 @@ class TestOrientTcpDown:
         # For roll=π, Z-axis = (0, 0, -1)
         angle = math.sqrt(sum(v**2 for v in rv))
         if angle > 1e-10:
-            ax, ay, az = rv[0]/angle, rv[1]/angle, rv[2]/angle
-            s, c = math.sin(angle), math.cos(angle)
-            oc = 1 - c
+            az = rv[2] / angle
+            c = math.cos(angle)
+            oc = 1.0 - c
             # R[2][2] = c + az*az*oc — tool Z in base frame
-            z_z = c + az*az*oc
+            z_z = c + az * az * oc
             assert abs(z_z - (-1.0)) < 1e-10
 
-    def test_preserves_heading(self):
-        """Tool X-axis direction in XY plane should be preserved."""
-        # Start with yaw=0.5 (tool facing ~45° from X)
+    def test_minimal_rotation_angle(self):
+        """Orient from yaw=0.5 to down should produce minimal rotation."""
         q = rpy_to_quat(0, 0, 0.5)
         rv = quat_to_rotvec(q)
         pose = [0.5, 0.3, 0.2, rv[0], rv[1], rv[2]]
         result = orient_tcp_down(pose)
 
-        # Original X axis angle in XY plane
-        orig_q = rotvec_to_quat(pose[3:])
-        orig_rpy = quat_to_rpy(orig_q)
-        orig_heading = orig_rpy[2]  # yaw = heading in XY plane
-
-        # Result X axis angle in XY plane
-        result_q = rotvec_to_quat(result[3:])
-        result_rpy = quat_to_rpy(result_q)
-        result_heading = result_rpy[2]
-
-        assert abs(orig_heading - result_heading) < 1e-10
+        # The minimal rotation from Z=[0,0,1] to Z=[0,0,-1] is 180°
+        result_angle = math.sqrt(sum(v**2 for v in result[3:]))
+        assert abs(result_angle - math.pi) < 1e-10
 
     def test_handles_gimbal_lock(self):
         """Pitch=90° (gimbal lock) should still produce valid down orientation."""
@@ -185,3 +180,107 @@ class TestFullRoundtrip:
             rv2 = quat_to_rotvec(q2)
             for a, b in zip(rv, rv2):
                 assert abs(a - b) < 1e-10, f"Failed for {rv}"
+
+
+class TestOrientTcp:
+    """TCP orientation in arbitrary directions (minimal relative rotation)."""
+
+    def test_preserves_position(self):
+        pose = [0.5, 0.3, 0.2, 0, 0, 0]
+        result = orient_tcp(pose, [1, 0, 0])
+        assert result[0] == 0.5
+        assert result[1] == 0.3
+        assert result[2] == 0.2
+
+    def test_z_points_along_target(self):
+        """Tool Z-axis should point along the target direction."""
+        pose = [0.5, 0.3, 0.2, 0, 0, 0]
+        result = orient_tcp(pose, [1, 0, 0])
+        R = _rotvec_to_matrix(result[3:])
+        z = [R[i][2] for i in range(3)]
+        assert abs(z[0] - 1.0) < 1e-10
+        assert abs(z[1]) < 1e-10
+        assert abs(z[2]) < 1e-10
+
+    def test_z_points_along_neg_y(self):
+        pose = [0.5, 0.3, 0.2, 0, 0, 0]
+        result = orient_tcp(pose, [0, -1, 0])
+        R = _rotvec_to_matrix(result[3:])
+        z = [R[i][2] for i in range(3)]
+        assert abs(z[0]) < 1e-10
+        assert abs(z[1] - (-1.0)) < 1e-10
+        assert abs(z[2]) < 1e-10
+
+    def test_minimal_rotation_non_180(self):
+        """Z up (yaw=30°) → +X: delta should be 90°, not 120°."""
+        q = rpy_to_quat(0, 0, math.radians(30))
+        rv = quat_to_rotvec(q)
+        pose = [0.5, 0.3, 0.2, rv[0], rv[1], rv[2]]
+        result = orient_tcp(pose, [1, 0, 0])
+        # Compute delta rotation: R_delta = R_new @ R_curr^T
+        R_curr = _rotvec_to_matrix(pose[3:])
+        R_new = _rotvec_to_matrix(result[3:])
+        # Transpose of R_curr (since it's orthogonal, inverse = transpose)
+        R_curr_T = [[R_curr[0][0], R_curr[1][0], R_curr[2][0]],
+                    [R_curr[0][1], R_curr[1][1], R_curr[2][1]],
+                    [R_curr[0][2], R_curr[1][2], R_curr[2][2]]]
+        R_delta = [
+            [sum(R_new[i][k] * R_curr_T[k][j] for k in range(3)) for j in range(3)]
+            for i in range(3)
+        ]
+        trace = R_delta[0][0] + R_delta[1][1] + R_delta[2][2]
+        delta_angle = math.acos(max(-1, min(1, (trace - 1) / 2)))
+        # Minimal rotation from [0,0,1] to [1,0,0] is 90°
+        assert abs(delta_angle - math.pi / 2) < 1e-10, f"delta_angle={delta_angle}"
+
+    def test_already_aligned_returns_unchanged(self):
+        """If Z already points along target, pose should be unchanged."""
+        pose = [0.5, 0.3, 0.2, 0, 0, 0]
+        result = orient_tcp(pose, [0, 0, 1])
+        assert result[3:] == pose[3:]
+
+    def test_180_degree_flip(self):
+        """Z up → Z down should give a valid 180° rotation."""
+        pose = [0.5, 0.3, 0.2, 0, 0, 0]
+        result = orient_tcp(pose, [0, 0, -1])
+        angle = math.sqrt(sum(v**2 for v in result[3:]))
+        assert abs(angle - math.pi) < 1e-10
+        R = _rotvec_to_matrix(result[3:])
+        z = [R[i][2] for i in range(3)]
+        assert abs(z[0]) < 1e-10
+        assert abs(z[1]) < 1e-10
+        assert abs(z[2] - (-1.0)) < 1e-10
+
+    def test_raises_on_zero_direction(self):
+        pose = [0.5, 0.3, 0.2, 0, 0, 0]
+        with pytest.raises(ValueError):
+            orient_tcp(pose, [0, 0, 0])
+
+    def test_various_starting_poses(self):
+        """Multiple starting orientations should all produce valid results."""
+        targets = [[1, 0, 0], [-1, 0, 0], [0, 1, 0], [0, -1, 0], [0, 0, 1], [0, 0, -1]]
+        for roll in [0, math.radians(45), math.radians(90)]:
+            for pitch in [0, math.radians(-30), math.radians(60)]:
+                for yaw in [0, math.radians(30)]:
+                    q = rpy_to_quat(roll, pitch, yaw)
+                    rv = quat_to_rotvec(q)
+                    pose = [0.5, 0.3, 0.2, rv[0], rv[1], rv[2]]
+                    for target in targets:
+                        result = orient_tcp(pose, target)
+                        # Verify Z points along target
+                        R = _rotvec_to_matrix(result[3:])
+                        z = [R[i][2] for i in range(3)]
+                        norm_t = math.sqrt(target[0]**2 + target[1]**2 + target[2]**2)
+                        t = [target[i]/norm_t for i in range(3)]
+                        dot = z[0]*t[0] + z[1]*t[1] + z[2]*t[2]
+                        assert abs(dot - 1.0) < 1e-10, (
+                            f"Z not aligned: roll={roll}, pitch={pitch}, "
+                            f"yaw={yaw}, target={target}"
+                        )
+                        # Verify rotation matrix is proper (det = 1)
+                        det = (
+                            R[0][0]*(R[1][1]*R[2][2] - R[1][2]*R[2][1])
+                            - R[0][1]*(R[1][0]*R[2][2] - R[1][2]*R[2][0])
+                            + R[0][2]*(R[1][0]*R[2][1] - R[1][1]*R[2][0])
+                        )
+                        assert abs(det - 1.0) < 1e-10
