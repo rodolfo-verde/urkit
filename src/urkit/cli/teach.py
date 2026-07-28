@@ -40,7 +40,7 @@ from urkit.exceptions import (
     URKitConnectionError,
     URKitConnectionError as ConnectionError,
 )
-from urkit.geometry import MoveFrame, orient_tcp_down, transform_pose_delta
+from urkit.geometry import MoveFrame, orient_tcp, transform_pose_delta
 from urkit.gripper.presets import DigitalGripperConfig, PRESETS
 from urkit.motion import FreedriveMode
 from urkit.robot import URRobot
@@ -357,6 +357,13 @@ def _draw_screen(
     except Exception:
         pass
 
+    # IK reference
+    ik_ref = state.get("ik_reference")
+    if ik_ref is not None:
+        lines.append(f" {blue('IK Ref:'.ljust(lw))} {green(ik_ref if isinstance(ik_ref, str) else 'custom')}")
+    else:
+        lines.append(f" {blue('IK Ref:'.ljust(lw))} {dim('None')}")
+
     if state["freedrive"]:
         mode_label = state["freedrive_mode"].name
         if mode_label == "XYZ":
@@ -397,7 +404,7 @@ def _draw_screen(
     lines.append(f"  {yellow('STEP:')}    {yellow('1')}: Linear (mm)  {yellow('2')}: Angular (°)  {yellow('.')}: Reset")
     lines.append(f"  {yellow('GRIPPER:')} {yellow('X')}: Open  {yellow('C')}: Close  {yellow('V')}: Position  {yellow('6')}: Speed  {yellow('7')}: Force")
     lines.append(f"  {yellow('POINTS:')}  {yellow('B')}: Save  {yellow('G')}: Go To  {yellow('H')}: Delete  {yellow('R')}: Rename  {yellow('P')}: Explorer")
-    lines.append(f"  {yellow('OTHER:')}   {yellow('F')}: Freedrive  {yellow('M')}: Frame  {yellow('N')}: GoTo Mode  {yellow('T')}: TCP Down")
+    lines.append(f"  {yellow('OTHER:')}   {yellow('F')}: Freedrive  {yellow('M')}: Frame  {yellow('N')}: GoTo Mode  {yellow('T')}: TCP Orient")
     lines.append(f"  {yellow('      ')}   {yellow('0')}: Speed  {yellow('Y')}: Save Config")
     lines.append(f"  {yellow('EXIT:')}    {yellow('ESC')}")
     lines.append(dim("=" * width))
@@ -445,7 +452,7 @@ def _draw_help() -> None:
     lines.append("  OTHER:")
     lines.append("    F      → Cycle freedrive: OFF → ALL → XYZ+Rz → OFF")
     lines.append("    M      → Toggle move frame: BASE / TOOL")
-    lines.append("    T      → Orient TCP downward (roll=180°)")
+    lines.append("    T      → Open TCP orient submenu (select axis direction)")
     lines.append("    0      → Set speed slider (0-100%)")
     lines.append("    Y      → Save config (IP, gripper, points path)")
     lines.append("")
@@ -878,6 +885,110 @@ def _submenu_explore_points(robot: URRobot, messages: list[str]) -> None:
         messages.append(f"Error: {e}")
 
 
+# TCP orientation directions for the submenu
+_TCP_ORIENT_OPTIONS = [
+    ("−Z (down)",  [0.0, 0.0, -1.0]),
+    ("+Z (up)",    [0.0, 0.0,  1.0]),
+    ("−Y (back)",  [0.0, -1.0, 0.0]),
+    ("+Y (fwd)",   [0.0,  1.0, 0.0]),
+    ("−X (left)",  [-1.0, 0.0, 0.0]),
+    ("+X (right)", [ 1.0, 0.0, 0.0]),
+]
+
+
+def _submenu_orient_tcp(
+    robot: URRobot, state: dict, messages: list[str], expert_mode: bool = False
+) -> None:
+    """Interactive submenu to orient TCP along a base-axis direction."""
+    cursor = 0
+    old_settings = termios.tcgetattr(sys.stdin)
+    new_settings = termios.tcgetattr(sys.stdin)
+    new_settings[3] = new_settings[3] & ~(termios.ICANON | termios.ECHO)
+    termios.tcsetattr(sys.stdin, termios.TCSADRAIN, new_settings)
+    fd = sys.stdin.fileno()
+
+    try:
+        while True:
+            sys.stdout.write("\033[2J\033[1;1H")
+            sys.stdout.write(cyan("  === ORIENT TCP ===") + "\n")
+            sys.stdout.write(dim("  Arrows navigate · Enter select · ESC cancel") + "\n\n")
+            sys.stdout.write(blue("  Point tool Z toward:") + "\n")
+            sys.stdout.write("  " + dim("─" * 60) + "\n")
+
+            for i, (label, _direction) in enumerate(_TCP_ORIENT_OPTIONS):
+                marker = green("►") if i == cursor else " "
+                sys.stdout.write(f"    {marker} {label}\n")
+
+            sys.stdout.write(f"\n  {dim('Enter')} to orient {green(_TCP_ORIENT_OPTIONS[cursor][0])}\n")
+            sys.stdout.flush()
+
+            ready, _, _ = select.select([fd], [], [], 0.1)
+            if not ready:
+                if _cli_monitor and _cli_monitor.fault_detected:
+                    termios.tcsetattr(sys.stdin, termios.TCSADRAIN, old_settings)
+                    raise URKitConnectionError(
+                        f"Robot fault detected: {_cli_monitor._reason or 'RTDE connection lost'}. "
+                        "RTDE connection lost."
+                    )
+                continue
+
+            raw = os.read(fd, 64)
+            if not raw:
+                continue
+            text = raw.decode("ascii", errors="replace")
+            i = 0
+            selected = None
+            while i < len(text):
+                ch = text[i]
+                if ch == "\x1b":
+                    if i + 2 < len(text) and text[i + 1] == "[":
+                        key = text[i + 2]
+                        if key == "A":
+                            cursor = max(0, cursor - 1)
+                        elif key == "B":
+                            cursor = min(len(_TCP_ORIENT_OPTIONS) - 1, cursor + 1)
+                        i += 3
+                        continue
+                    else:
+                        return None  # ESC → cancel
+                if ch == "\n" or ch == "\r":
+                    selected = cursor
+                elif ch == "\x03":
+                    return None
+                i += 1
+
+            if selected is not None:
+                break
+    finally:
+        termios.tcsetattr(sys.stdin, termios.TCSADRAIN, old_settings)
+
+    if selected is None:
+        messages.append("Cancelled")
+        return
+
+    label, direction = _TCP_ORIENT_OPTIONS[selected]
+    try:
+        if state["freedrive"]:
+            robot.disable_freedrive()
+            state["freedrive"] = False
+
+        pose = robot.get_tcp_pose()
+        target = orient_tcp(pose, direction)
+        try:
+            robot.inverse_kinematics(target)
+        except MotionError:
+            messages.append(f"Unreachable: TCP {label} — no IK solution")
+            return
+
+        if expert_mode:
+            robot.move_to(target, vel=0.5, acc=0.3)
+        else:
+            robot.move_to(target, vel=0.125, acc=0.1)
+        messages.append(f"TCP oriented {label}")
+    except MotionError as e:
+        messages.append(f"Error: {e}")
+
+
 # ------------------------------------------------------------------
 # Key input helpers
 # ------------------------------------------------------------------
@@ -944,7 +1055,7 @@ def _teach_pendant(
 
     Args:
         robot: Initialized URRobot instance.
-        expert_mode: When True, skip safety speed clamping on goto/tcp-down.
+        expert_mode: When True, skip safety speed clamping on goto/tcp-orient.
     """
     state: dict = {
         "linear_step": _DEFAULT_LINEAR_STEP,
@@ -954,6 +1065,7 @@ def _teach_pendant(
         "move_frame": robot.move_frame,
         "goto_mode": "cartesian",  # "cartesian" or "joint" for Go To
         "speed_slider": 1.0,
+        "ik_reference": robot._ik_reference,
     }
 
     # Read the robot's current speed slider so the display matches reality.
@@ -1193,31 +1305,13 @@ def _teach_pendant(
                     messages.append(f"Go To mode: {state['goto_mode'].capitalize()}")
                     command_handled = True
 
-                # --- TCP orient down ---
+                # --- TCP orient submenu ---
                 elif key == "t":
                     if state["move_frame"] == MoveFrame.TOOL:
-                        messages.append("TCP Down unavailable in TOOL frame")
+                        messages.append("TCP Orient unavailable in TOOL frame")
                         command_handled = True
                     else:
-                        try:
-                            if state["freedrive"]:
-                                robot.disable_freedrive()
-                                state["freedrive"] = False
-                            pose = robot.get_tcp_pose()
-                            target = orient_tcp_down(pose)
-                            try:
-                                robot.inverse_kinematics(target)
-                            except MotionError:
-                                messages.append("Unreachable: TCP Down — no IK solution")
-                                command_handled = True
-                            else:
-                                if expert_mode:
-                                    robot.move_to(target, vel=0.5, acc=0.3)
-                                else:
-                                    robot.move_to(target, vel=0.125, acc=0.1)
-                                messages.append("TCP oriented downward")
-                        except MotionError as e:
-                            messages.append(f"Error: {e}")
+                        _submenu_orient_tcp(robot, state, messages, expert_mode)
                         command_handled = True
 
                 # --- Gripper ---
@@ -1460,8 +1554,15 @@ def teach_command(args) -> None:
     if gripper_name:
         print(f"  Gripper: {gripper_name}")
     print(f"  Points:  {points_path}")
-    if ik_reference:
-        print(f"  IK ref:  {ik_reference}")
+    if gripper_config is not None:
+        tcp = gripper_config.tcp_offset
+        non_zero = [v for v in tcp if abs(v) > 1e-6]
+        if len(non_zero) == 1 and abs(tcp[0]) < 1e-6 and abs(tcp[1]) < 1e-6:
+            print(f"  TCP:     Z={tcp[2]*1000:.1f}mm")
+        elif len(non_zero) <= 3 and all(abs(tcp[i]) < 1e-6 for i in range(3, 6)):
+            print(f"  TCP:     X={tcp[0]*1000:.1f} Y={tcp[1]*1000:.1f} Z={tcp[2]*1000:.1f}mm")
+        else:
+            print(f"  TCP:     {list(tcp)}")
 
     # URRobot handles everything: safety recovery, remote mode check,
     # power on, brake release, program stop, and RTDE connection.

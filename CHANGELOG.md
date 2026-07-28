@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.21] — 2026-07-28
+
+### Added
+- `orient_tcp(pose, direction)` — generalized TCP orientation function that points tool Z along any base-axis direction while preserving heading
+- TCP orient submenu in teach pendant (T key) — select from 6 directions: −Z (down), +Z (up), −Y, +Y, −X, +X
+- TCP offset displayed at boot (replaces IK ref boot print), IK ref displayed on teach pendant screen
+
+### Changed
+- `orient_tcp_down()` now delegates to `orient_tcp(pose, [0, 0, -1])` — same behavior, shared implementation
+
 ## [0.3.20] — 2026-07-27
 
 ### Added

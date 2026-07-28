@@ -85,7 +85,7 @@ def main() -> None:
         "-e", "--expert",
         action="store_true",
         default=False,
-        help="Disable safety speed clamping (full speed for goto/tcp-down)",
+        help="Disable safety speed clamping (full speed for goto/tcp-orient)",
     )
     teach_parser.add_argument(
         "-v", "--verbose",

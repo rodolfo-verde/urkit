@@ -24,7 +24,7 @@ Quick start::
 
 from __future__ import annotations
 
-__version__ = "0.3.20"
+__version__ = "0.3.21"
 
 from urkit.config import load_config, resolve_config
 from urkit.exceptions import (
@@ -41,6 +41,7 @@ from urkit.exceptions import (
 )
 from urkit.geometry import (
     MoveFrame,
+    orient_tcp,
     orient_tcp_down,
     quat_to_rotvec,
     quat_to_rpy,
@@ -80,6 +81,7 @@ __all__ = [
     # Move frame
     "MoveFrame",
     # Geometry
+    "orient_tcp",
     "orient_tcp_down",
     "quat_to_rotvec",
     "quat_to_rpy",
