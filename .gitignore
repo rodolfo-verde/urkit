@@ -31,4 +31,5 @@ CLAUDE.md
 QWEN.md
 AGENTS.md
 .claude/
-.qwen/
+.qwen/_demo/
+_demo/
