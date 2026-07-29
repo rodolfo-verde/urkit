@@ -408,10 +408,11 @@ class Motion:
                     t_start = self._rtde_c.initPeriod()
                     self._rtde_c.speedL(speed_vector, acceleration, 0.002)
 
-                # Check force/torque for contact
+                # Check force/torque for contact — only on moving axes
                 current = list(self._rtde_r.getActualTCPForce())
+                moving_axes = [i for i in range(6) if abs(speed_vector[i]) > 0]
                 if any(
-                    abs(current[i] - baseline[i]) > threshold for i in range(6)
+                    abs(current[i] - baseline[i]) > threshold for i in moving_axes
                 ):
                     contact_detected = True
                     break
