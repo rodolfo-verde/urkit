@@ -1614,13 +1614,15 @@ class URRobot:
         threshold: float = 5.0,
         acceleration: float = 0.1,
         zero_first: bool = True,
+        timeout: float | None = None,
+        max_distance: float | None = None,
         speed_x: float = 0.0,
         speed_y: float = 0.0,
         speed_z: float = 0.0,
         speed_rx: float = 0.0,
         speed_ry: float = 0.0,
         speed_rz: float = 0.0,
-    ) -> None:
+    ) -> bool:
         """Move until contact is detected via TCP force sensing.
 
         Runs an interruptible control loop — press Ctrl+C to stop at any time.
@@ -1636,8 +1638,16 @@ class URRobot:
             acceleration: Acceleration limit passed to ``speedL()`` in m/s².
             zero_first: If True (default), zero the FT sensor before reading
                 the baseline. Set to False if you need absolute force values.
+            timeout: Maximum time in seconds before aborting. Set to ``None``
+                (default) for no time limit.
+            max_distance: Maximum TCP travel distance in meters before aborting.
+                Set to ``None`` (default) for no distance limit.
             speed_x, speed_y, speed_z: Linear speed components in m/s.
             speed_rx, speed_ry, speed_rz: Angular speed components in rad/s.
+
+        Returns:
+            ``True`` if contact was detected, ``False`` if timeout or
+            max_distance was reached without contact.
 
         Example:
             >>> # Move straight down until contact
@@ -1646,6 +1656,8 @@ class URRobot:
             >>> robot.move_until_contact([0, 0, -0.02, 0, 0, 0])
             >>> # Higher threshold for heavier contact
             >>> robot.move_until_contact(speed_z=-0.02, threshold=10.0)
+            >>> # Abort after 10s or 200mm, whichever comes first
+            >>> robot.move_until_contact(speed_z=-0.02, timeout=10.0, max_distance=0.2)
         """
         self._check_connection()
         self._disable_freedrive_guard()
@@ -1655,11 +1667,13 @@ class URRobot:
         else:
             final_vector = [speed_x, speed_y, speed_z, speed_rx, speed_ry, speed_rz]
 
-        self._motion.move_until_contact(
+        return self._motion.move_until_contact(
             final_vector,
             threshold=threshold,
             acceleration=acceleration,
             zero_first=zero_first,
+            timeout=timeout,
+            max_distance=max_distance,
         )
 
     def move_velocity(

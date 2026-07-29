@@ -480,6 +480,16 @@ robot.move_until_contact(speed_z=-0.02, zero_first=False)
 # Full speed vector
 robot.move_until_contact([0, 0, -0.02, 0, 0, 0])
 
+# Abort after 10s or 200mm of travel, whichever comes first
+robot.move_until_contact(speed_z=-0.02, timeout=10.0, max_distance=0.2)
+
+# Returns True if contact detected, False if timeout/max_distance hit
+for _ in range(3):
+    if robot.move_until_contact(speed_z=-0.02, timeout=10.0, max_distance=0.2):
+        break  # contact detected
+    # No contact — back off and retry
+    robot.move_by(z=0.01)
+
 # Manual zero (e.g. before custom force-based logic)
 robot.zero_ft_sensor()
 ```

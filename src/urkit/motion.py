@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import io
 import logging
+import math
 import os
 import sys
 import time
@@ -278,7 +279,9 @@ class Motion:
         threshold: float = 5.0,
         acceleration: float = 0.1,
         zero_first: bool = True,
-    ) -> None:
+        timeout: float | None = None,
+        max_distance: float | None = None,
+    ) -> bool:
         """Move until contact is detected via TCP force sensing.
 
         Runs a 500 Hz control loop that sends ``speedL()`` commands and
@@ -300,15 +303,30 @@ class Motion:
             zero_first: If True (default), zero the FT sensor before reading
                 the baseline. Set to False if you need absolute force values
                 rather than delta from zero.
+            timeout: Maximum time in seconds before aborting. If exceeded,
+                returns ``False``. Set to ``None`` (default) for no time limit.
+            max_distance: Maximum TCP travel distance in meters before aborting.
+                If exceeded, returns ``False``. Set to ``None`` (default) for
+                no distance limit.
+
+        Returns:
+            ``True`` if contact was detected, ``False`` if timeout or
+            max_distance was reached without contact.
 
         Raises:
-            MotionError: If the command fails or the vector is invalid.
+            MotionError: If the command fails (connection lost, E-stop,
+                protective stop, invalid params).
 
         Example:
             >>> # Move straight down until contact (zeros FT sensor first)
             >>> motion.move_until_contact([0, 0, -0.02, 0, 0, 0])
             >>> # Move down while rotating, higher threshold
             >>> motion.move_until_contact([0, 0, -0.02, 0, 0.1, 0], threshold=10.0)
+            >>> # Retry loop with guards
+            >>> for _ in range(3):
+            ...     if motion.move_until_contact([0, 0, -0.02, 0, 0, 0], timeout=10.0, max_distance=0.2):
+            ...         break
+            ...     # No contact — reposition and retry
         """
         if len(speed_vector) != 6:
             raise MotionError(
@@ -316,11 +334,16 @@ class Motion:
             )
         if threshold <= 0:
             raise MotionError(f"Threshold must be > 0, got {threshold}.")
+        if timeout is not None and timeout <= 0:
+            raise MotionError(f"Timeout must be > 0, got {timeout}.")
+        if max_distance is not None and max_distance <= 0:
+            raise MotionError(f"max_distance must be > 0, got {max_distance}.")
 
+        contact_detected = False
         try:
             logger.debug(
-                "move_until_contact: speed_vector=%s, threshold=%.2f",
-                speed_vector, threshold,
+                "move_until_contact: speed_vector=%s, threshold=%.2f, timeout=%s, max_distance=%s",
+                speed_vector, threshold, timeout, max_distance,
             )
 
             # Zero FT sensor to clear gravity bias before reading baseline
@@ -331,7 +354,34 @@ class Motion:
             # Baseline force reading before the loop
             baseline = list(self._rtde_r.getActualTCPForce())
 
+            # Track timeout and distance guards
+            start_time = time.monotonic() if timeout is not None else None
+            start_pose = list(self._rtde_r.getActualTCPPose())[:3] if max_distance is not None else None
+
             while True:
+                # Check time timeout
+                if start_time is not None and timeout is not None:
+                    elapsed = time.monotonic() - start_time
+                    if elapsed >= timeout:
+                        logger.info(
+                            "move_until_contact timed out after %.1fs (limit: %.1fs)",
+                            elapsed, timeout,
+                        )
+                        break
+
+                # Check distance timeout
+                if start_pose is not None and max_distance is not None:
+                    current_pose = list(self._rtde_r.getActualTCPPose())[:3]
+                    distance = math.sqrt(
+                        sum((current_pose[i] - start_pose[i]) ** 2 for i in range(3))
+                    )
+                    if distance >= max_distance:
+                        logger.info(
+                            "move_until_contact exceeded max_distance: %.3fm travelled (limit: %.3fm)",
+                            distance, max_distance,
+                        )
+                        break
+
                 if not self._rtde_c.isConnected():
                     raise MotionError(
                         "RTDE connection lost during move_until_contact. "
@@ -363,6 +413,7 @@ class Motion:
                 if any(
                     abs(current[i] - baseline[i]) > threshold for i in range(6)
                 ):
+                    contact_detected = True
                     break
 
                 with _suppress_rtde_stderr():
@@ -377,6 +428,8 @@ class Motion:
                     self._rtde_c.speedStop()
             except Exception:
                 pass
+
+        return contact_detected
 
     def move_velocity(
         self,

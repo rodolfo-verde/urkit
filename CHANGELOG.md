@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.23] — 2026-07-29
+
+### Added
+- `move_until_contact(timeout, max_distance)` — optional guards to abort if contact is not detected within a time limit (seconds) or travel distance (meters), whichever fires first
+- `move_until_contact` returns `bool` — `True` if contact detected, `False` if timeout or max_distance exceeded (real errors still raise `MotionError`)
+
 ## [0.3.22] — 2026-07-28
 
 ### Fixed
