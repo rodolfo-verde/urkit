@@ -17,7 +17,7 @@ if TYPE_CHECKING:
     from rtde.control_interface import RTDEControlInterface
     from rtde.receive_interface import RTDEReceiveInterface
 
-from urkit.config import resolve_config
+from urkit.config import _resolve_config
 from urkit.connection import (
     _check_remote_mode,
     _connect_dashboard,
@@ -425,7 +425,7 @@ class URRobot:
             >>> robot = URRobot.from_config({"robot_ip": "192.168.1.50", "gripper": {"name": "tool", "mass": 0.5, "center_of_gravity": [0, 0, 0], "tcp_offset": [0, 0, 0.1, 0, 0, 0], "backend": "none"}})
         """
         if isinstance(config, str):
-            resolved = resolve_config(config)
+            resolved = _resolve_config(config)
             if resolved is None:
                 raise ValueError(f"Config file not found: {config!r}")
             try:

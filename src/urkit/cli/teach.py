@@ -26,7 +26,7 @@ from pathlib import Path
 
 import yaml
 
-from urkit import load_config
+from urkit.config import _load_config as load_config
 from urkit.cli.colors import blue, cyan, dim, green, red, yellow
 from urkit.cli.connection_monitor import ConnectionMonitor
 from urkit.cli.points import _interactive_points_filter
@@ -80,16 +80,14 @@ _MAX_ANG_VEL = 1.5    # rad/s
 _MAX_ANG_ACC = 3.0    # rad/s²
 
 # UR e-Series joint limits (degrees) — [min, max] for each joint
-# Sources: UR User Manuals (UR3e/UR5e/UR10e v5.8), ros-industrial ur_description
-# J3 (elbow) physically restricted to ±180° — shoulder lift joint gets in the way.
-# J6 (tool flange) unlimited rotation; ±360 used as practical display limit.
+# Source: Universal Robots e-Series datasheets (all models ±360° per joint)
 _JOINT_LIMITS_DEG = [
     (-360, 360),   # J1 shoulder pan
     (-360, 360),   # J2 shoulder lift
-    (-180, 180),   # J3 elbow (physically restricted)
+    (-360, 360),   # J3 elbow
     (-360, 360),   # J4 wrist 1
     (-360, 360),   # J5 wrist 2
-    (-360, 360),   # J6 wrist 3 (unlimited rotation)
+    (-360, 360),   # J6 wrist 3
 ]
 _JOINT_WARN_PCT = 10   # Yellow when within this % of joint range
 _JOINT_DANGER_PCT = 5  # Red when within this % of joint range

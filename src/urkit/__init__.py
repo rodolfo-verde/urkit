@@ -24,9 +24,9 @@ Quick start::
 
 from __future__ import annotations
 
-__version__ = "0.3.25"
+__version__ = "0.3.26"
 
-from urkit.config import load_config, resolve_config
+
 from urkit.exceptions import (
     URKitError,
     URKitConnectionError,
@@ -63,9 +63,7 @@ from urkit.robot import URRobot
 __all__ = [
     # Version
     "__version__",
-    # Config
-    "load_config",
-    "resolve_config",
+
     # Core class
     "URRobot",
     # Gripper

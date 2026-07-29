@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.26] — 2026-07-29
+
+### Fixed
+- Joint limits: J3 corrected to ±360° (was ±180°) — all UR e-Series joints are ±360° per official datasheets
+- README: removed references to non-existent methods (`is_at_pose`, `is_at_joints`, `move_by`)
+- README: fixed `set_position_percent` polarity (0=open, 100=closed) and TCP orient description
+- README: restructured for better flow — Configuration before CLI, More API section for specialized topics
+- README: removed duplicates (`disconnect()`, `stop()`, `from_config()`)
+
+### Changed
+- `load_config` and `resolve_config` are now private (`_load_config`, `_resolve_config`) — use `URRobot.from_config()` instead
+
 ## [0.3.25] — 2026-07-29
 
 ### Fixed

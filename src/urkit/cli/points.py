@@ -18,7 +18,7 @@ from pathlib import Path
 from rich.console import Console
 from rich.table import Table
 
-from urkit import load_config
+from urkit.config import _load_config as load_config
 from urkit.cli.colors import blue, cyan, dim, yellow
 from urkit.points import Points
 

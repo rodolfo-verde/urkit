@@ -11,6 +11,12 @@ Built on [`ur_rtde`](https://sdurobotics.gitlab.io/ur_rtde/), it packages the op
 ## Table of Contents
 
 - [Quick Start](#quick-start)
+- [Configuration](#configuration)
+  - [Location](#location)
+  - [Keys](#keys)
+  - [Gripper Config](#gripper-config)
+  - [Saving Config](#saving-config)
+  - [Programmatic](#programmatic)
 - [Interactive CLI](#interactive-cli)
   - [Teach Mode](#teach-mode)
   - [Points Explorer](#points-explorer)
@@ -20,8 +26,10 @@ Built on [`ur_rtde`](https://sdurobotics.gitlab.io/ur_rtde/), it packages the op
   - [Grippers](#grippers)
   - [Points & Motion](#points--motion)
   - [Telemetry](#telemetry)
+- [More API](#more-api)
   - [Digital I/O](#digital-io)
-- [Configuration](#configuration)
+  - [Geometry](#geometry)
+  - [Robot Lifecycle](#robot-lifecycle)
 - [Advanced](#advanced)
   - [Raw RTDE Access](#raw-rtde-access)
   - [Connection Lifecycle](#connection-lifecycle)
@@ -73,6 +81,100 @@ The typical workflow:
 1. **Teach points.** Use the CLI to position the robot and save named waypoints.
 2. **Write code.** Create a robot, move to points by name, apply offsets, run sequences.
 3. **Iterate.** Add more points, tweak your code, repeat.
+
+---
+
+## Configuration
+
+URKit uses a YAML config file (`config.yaml`) to persist settings between sessions.
+
+### Location
+
+URKit searches for `config.yaml` in the current working directory, or an explicit path via `--config`.
+
+### Keys
+
+| Key | Description | Example |
+|-----|-------------|---------|
+| `robot_ip` | Robot IP address | `192.168.1.50` |
+| `points_path` | Path to SQLite points database | `points.db` |
+| `gripper` | Gripper preset name | `hand-e`, `2f-85`, `2f-140`, `digital` |
+| `ik_reference` | IK reference posture (prevents elbow flipping) | `home` |
+| `default_vel` | Default linear velocity (m/s) | `0.5` |
+| `default_acc` | Default linear acceleration (m/s²) | `0.3` |
+| `expert_mode` | Disable safety speed clamping | `false` |
+
+### Gripper Config
+
+Built-in preset with overrides:
+
+```yaml
+gripper: hand-e
+gripper_config:
+  force: 50
+  speed: 80
+```
+
+Digital I/O gripper:
+
+```yaml
+gripper: digital
+gripper_config:
+  pin: 3
+  close_on_high: true
+```
+
+Custom gripper (arbitrary payload + TCP offset, no backend):
+
+```yaml
+gripper:
+  mass: 0.5
+  center_of_gravity: [0.0, 0.0, 0.0]
+  tcp_offset: [0.0, 0.0, 0.175, 0.0, 0.0, 0.0]
+  backend: none
+```
+
+Override physical properties on a built-in preset:
+
+```yaml
+gripper: 2f-85
+gripper_config:
+  mass: 1.2
+  center_of_gravity: [0.0, 0.0, 0.07]
+  tcp_offset: [0.0, 0.0, 0.200, 0.0, 0.0, 0.0]
+```
+
+### CLI Override Precedence
+
+1. **CLI flags.** `urkit teach 192.168.1.50 --gripper none`
+2. **Config file.** Values from `config.yaml`
+3. **Built-in defaults.** `points.db`, no gripper, 0.5 m/s velocity
+
+### Saving Config
+
+The CLI **never** modifies your config file automatically. Press **Y** inside the teach pendant to save. This way you only save settings you've actually tested.
+
+```bash
+urkit teach 192.168.1.50 --gripper hand-e  # test, then press Y
+urkit teach                               # next time: reads from config
+```
+
+Multiple workcells:
+
+```bash
+urkit teach --config station_a.yaml   # press Y to save
+urkit teach --config station_b.yaml   # separate config
+```
+
+### Programmatic
+
+```python
+from urkit import URRobot
+
+robot = URRobot.from_config("config.yaml")
+robot = URRobot.from_config("config.yaml", ip="10.0.0.50")  # override IP
+robot = URRobot.from_config({"robot_ip": "192.168.1.50", "gripper": "2f-85"})  # dict, no file
+```
 
 ---
 
@@ -166,7 +268,6 @@ All movement and orientation keys support **hold-to-repeat**.
         <tr><td><code>V</code></td><td>Set position (mm)</td></tr>
         <tr><td><code>6</code></td><td>Set speed (0-100)</td></tr>
         <tr><td><code>7</code></td><td>Set force (0-100)</td></tr>
-        <tr><td colspan="3">Gripper line shows: `Connected 25.0mm (50%) F=100 S=100`</td></tr>
       </table>
     </td>
     <td align="center" style="width:33%">
@@ -185,7 +286,7 @@ All movement and orientation keys support **hold-to-repeat**.
         <tr><td><code>F</code></td><td>Freedrive (OFF → ALL → XYZ+Rz)</td></tr>
         <tr><td><code>M</code></td><td>Toggle frame (BASE / TOOL)</td></tr>
         <tr><td><code>N</code></td><td>Go To mode (Cartesian / Joint)</td></tr>
-        <tr><td><code>T</code></td><td>Orient TCP down (180°)</td></tr>
+        <tr><td><code>T</code></td><td>Open TCP orient submenu (6 directions)</td></tr>
         <tr><td><code>Y</code></td><td>Save config to file</td></tr>
         <tr><td><code>ESC</code></td><td>Exit</td></tr>
       </table>
@@ -198,10 +299,10 @@ All movement and orientation keys support **hold-to-repeat**.
 The teach pendant shows live joint angles alongside TCP position and orientation:
 
 ```
- Position      X=+0.432  Y=+0.111  Z=+0.227
- Orientation   R=+131.3  P=-121.0  Y= +8.0
- Joints        J1=+150.0  J2=+020.0  J3=+160.0
-               J4=+050.0  J5=-080.0  J6=+157.0
+ Position     X=+0.432  Y=+0.111  Z=+0.227
+ Orientation  R=+131.3  P=-121.0  Y=  +8.0
+ Joints       J1=+150.0  J2=+ 20.0  J3=+160.0
+              J4=+ 50.0  J5=- 80.0  J6=+157.0
 ```
 
 Joint angles color-code proximity to mechanical limits:
@@ -211,20 +312,20 @@ Joint angles color-code proximity to mechanical limits:
 
 UR e-Series joint limits:
 
-| Joint | Range | Notes |
-|-------|-------|-------|
-| J1 (shoulder pan) | ±360° | Full rotation |
-| J2 (shoulder lift) | ±360° | Full rotation |
-| J3 (elbow) | ±180° | Physically restricted — shoulder lift gets in the way |
-| J4 (wrist 1) | ±360° | Full rotation |
-| J5 (wrist 2) | ±360° | Full rotation |
-| J6 (wrist 3) | ±360° | Tool flange unlimited rotation |
+| Joint | Range |
+|-------|-------|
+| J1 (shoulder pan) | ±360° |
+| J2 (shoulder lift) | ±360° |
+| J3 (elbow) | ±360° |
+| J4 (wrist 1) | ±360° |
+| J5 (wrist 2) | ±360° |
+| J6 (wrist 3) | ±360° |
 
-Thresholds scale with each joint's range, so warning zones feel proportional across all joints.
+
 
 ### Safety
 
-By default, **Go To** and **TCP Down** movements use a slow velocity (0.125 m/s) so its safer for anyone standing near the robot. The user's speed slider still applies as a global multiplier on top of this.
+By default, **Go To** and **TCP orient** movements use a slow velocity (0.125 m/s) so its safer for anyone standing near the robot. The user's speed slider still applies as a global multiplier on top of this.
 
 Delta movements (W/S/A/D/Q/E) use step-size-based velocities that scale with the speed slider set by the user.
 
@@ -263,12 +364,9 @@ robot = URRobot(
 )
 ```
 
-From a config file:
+See [Configuration](#configuration) for `from_config()` usage.
 
-```python
-robot = URRobot.from_config("config.yaml")
-robot = URRobot.from_config("config.yaml", ip="10.0.0.50")  # override IP
-```
+The constructor takes a few seconds on first call: it validates the connection, checks remote mode, powers on the robot, releases brakes, and connects RTDE. Subsequent calls are faster if the robot is already running.
 
 ### Grippers
 
@@ -276,27 +374,44 @@ Three built-in presets:
 
 | Preset | Description |
 |--------|-------------|
-| `ROBOTIQ_HAND_E` | Robotiq 2F-140-E (Hand-E series) |
+| `ROBOTIQ_HAND_E` | Robotiq Hand-E (2F-85-E) |
 | `ROBOTIQ_2F_85` | Robotiq 2F-85 |
 | `ROBOTIQ_2F_140` | Robotiq 2F-140 |
 
 ```python
 robot.gripper.activate()              # required before open/close (Robotiq only)
+robot.gripper.deactivate()            # deactivate (Robotiq only)
 robot.gripper.is_activated()          # check activation state
 
 robot.gripper.open()                  # fully open (blocking by default)
 robot.gripper.close()                 # fully closed, stops on contact
-robot.gripper.open(wait=False)        # non-blocking return
-robot.gripper.set_position_mm(20)     # 20mm open (Robotiq only, 0 = closed)
-robot.gripper.set_position_percent(50) # 50% open (Robotiq only, 0 = open, 100 = closed)
+robot.gripper.open(wait=False)        # non-blocking return (waits for position)
+robot.gripper.set_position_mm(20)     # 20mm open (Robotiq only, 0 = fully closed)
+robot.gripper.set_position_percent(50) # 50% open (Robotiq only, 0 = fully open, 100 = fully closed)
 robot.gripper.set_force(50)           # grip force: 0-100 (Robotiq only)
 robot.gripper.set_speed(80)           # movement speed: 0-100 (Robotiq only)
+
+robot.gripper.get_position_mm()       # last commanded position in mm
+robot.gripper.max_travel_mm()         # max finger travel (e.g. 85.0 for 2F-85)
 ```
 
 Override preset values for custom fingers:
 
 ```python
 robot = URRobot(ip="192.168.1.50", points="points.db", gripper=ROBOTIQ_HAND_E, max_mm=120)
+```
+
+Override physical properties (e.g., custom fingers or added hardware change the weight):
+
+```python
+robot = URRobot(
+    ip="192.168.1.50",
+    points="points.db",
+    gripper=ROBOTIQ_HAND_E,
+    mass=1.2,                          # override preset mass
+    center_of_gravity=[0.0, 0.0, 0.07], # override CoG
+    tcp_offset=[0.0, 0.0, 0.180, 0, 0, 0],  # override TCP offset
+)
 ```
 
 #### Digital I/O Grippers
@@ -334,6 +449,7 @@ robot.move_to("pick")                      # linear move (default)
 robot.move_to("pick", linear=False)        # joint move
 robot.move_to("pick", vel=1.0, acc=0.5)    # override speed
 robot.move_to("pick", asynchronous=True)   # non-blocking, returns immediately
+robot.move_to([0.5, 0, 0.3, 0, 0, 0])      # raw pose (no points DB needed)
 ```
 
 - **Linear (moveL):** TCP moves in a straight line. Predictable path, slower near complex orientations.
@@ -351,11 +467,11 @@ robot.move_to("pick", asynchronous=True)
 while robot.is_moving():
     time.sleep(0.01)
 
-# Or cancel mid-move
+# Or cancel mid-move (see [Speed Control](#speed-control) for `stop()`)
 robot.move_to("pick", asynchronous=True)
 while robot.is_moving():
     if should_cancel:
-        robot.stop()  # sends stopL + stopJ
+        robot.stop()
         break
     time.sleep(0.01)
 ```
@@ -435,11 +551,9 @@ robot.move_to("back", ik_reference="current") # use current joints
 
 **When to use it:** Almost always. If you've ever seen the robot move in a way that looked "wrong" or flipped its elbow unexpectedly, this is what fixes it. Set it once in config.yaml and forget about it.
 
-#### Points are tool-agnostic
-
-Points are stored in the active TCP frame, so they work with any tool. If you swap grippers and set the correct TCP offset, your saved points remain valid.
-
 #### Point Management
+
+Points are stored in the active TCP frame, so they work with any tool — swap grippers and your saved points stay valid.
 
 ```python
 robot.save_point("here")
@@ -455,8 +569,20 @@ robot.import_points("backup.json")
 ```python
 robot.move_relative(delta_y=0.01)  # 1cm along Y
 robot.move_relative(delta_z=0.05, frame=MoveFrame.TOOL)  # 5cm along tool Z
-robot.move_relative([0, 0.01, 0, 0, 0, 0])
+robot.move_relative([0, 0.01, 0, 0, 0, 0])  # full 6-element delta
 ```
+
+Individual delta parameters (`delta_x`, `delta_y`, `delta_z`, `delta_rx`, `delta_ry`, `delta_rz`) are mutually exclusive with the `delta` list — use one or the other.
+
+#### Sequences
+
+```python
+robot.move_relative(delta_y=0.01)  # 1cm along Y
+robot.move_relative(delta_z=0.05, frame=MoveFrame.TOOL)  # 5cm along tool Z
+robot.move_relative([0, 0.01, 0, 0, 0, 0])  # full 6-element delta
+```
+
+Individual delta parameters (`delta_x`, `delta_y`, `delta_z`, `delta_rx`, `delta_ry`, `delta_rz`) are mutually exclusive with the `delta` list — use one or the other.
 
 #### Sequences
 
@@ -464,6 +590,24 @@ robot.move_relative([0, 0.01, 0, 0, 0, 0])
 # Chain multiple moves into one call
 robot.move_sequence(["a", "b", "c"])
 ```
+
+With **IK reference** (recommended), all poses resolve to joints using chained inverse kinematics — the first pose resolves relative to the reference, the second relative to the first's resolved joints, and so on. This keeps the arm configuration consistent throughout the sequence:
+
+```python
+robot.ik_reference = "home"
+robot.move_sequence(["a", "b", "c"])  # chained IK, no elbow flipping
+```
+
+With **blend_radius**, the robot rounds corners instead of stopping at each waypoint:
+
+```python
+robot.move_sequence(
+    ["a", "b", "c"],
+    blend_radius=0.02,  # 2cm blend between waypoints
+)
+```
+
+`move_sequence` requires at least 2 targets. Without `ik_reference`, it falls back to individual `moveL` calls (legacy behavior, no blending).
 
 #### Contact Detection
 
@@ -488,7 +632,7 @@ for _ in range(3):
     if robot.move_until_contact(speed_z=-0.02, timeout=10.0, max_distance=0.2):
         break  # contact detected
     # No contact — back off and retry
-    robot.move_by(z=0.01)
+    robot.move_relative(delta_z=0.01)
 
 # Manual zero (e.g. before custom force-based logic)
 robot.zero_ft_sensor()
@@ -538,8 +682,6 @@ robot.default_vel      # read current velocity (m/s)
 robot.default_acc      # read current acceleration (m/s²)
 ```
 
-Soft warnings log when values exceed typical robot limits (> 2 m/s for velocity, > 6 m/s² for acceleration). The controller may clamp aggressive values based on payload and configuration.
-
 #### Inverse Kinematics
 
 ```python
@@ -554,115 +696,120 @@ joints = robot.get_joint_positions()  # [j0..j5]
 force = robot.get_tcp_force()         # [fx, fy, fz, mx, my, mz]
 mode = robot.get_robot_mode()         # "REMOTE_CONTROL", "SERVOING", etc.
 payload = robot.get_payload()         # kg
-robot.is_moving()                     # bool — any joint/TCP velocity non-zero
+robot.current_point()                 # {"pose": [...], "joints": [...]}
 robot.is_protective_stopped()         # bool
 robot.is_emergency_stopped()          # bool
-robot.current_point()                 # {"pose": [...], "joints": [...]}
-robot.is_at_pose(target)              # bool — TCP within 1mm / 0.5°
-robot.is_at_joints(target)            # bool — all joints within 0.001 rad
+robot.is_remote_mode()                # bool — check remote control state
+robot.get_polyscope_version()         # e.g. "5.25.0" or None
 ```
 
-`is_moving()` is the simplest way to poll — `is_at_pose()` / `is_at_joints()` for precise target checking:
+#### Arrival Detection
+
+`is_moving()` tracks the target pose or joints stored by `move_to()` and compares against the current position. Returns `False` when within tolerance:
 
 ```python
 robot.move_to("pick", asynchronous=True)
 
-# Simple: wait until robot stops
+# Wait until arrived (default tolerances: 2mm position, ~2° orientation)
 while robot.is_moving():
     time.sleep(0.01)
 
-# Precise: check against specific target
-while not robot.is_at_pose(target_pose):
+# Tighter tolerances
+while robot.is_moving(position_tolerance=0.001, orientation_tolerance=0.017):
+    time.sleep(0.01)
+
+# Joint moves — tighter joint tolerance
+while robot.is_moving(joint_tolerance=0.001):
     time.sleep(0.01)
 ```
 
-### Digital I/O
-
-```python
-robot.set_digital_output(0, True)
-robot.set_digital_outputs({0: True, 1: False, 8: True})
-robot.set_digital_outputs(False)      # clear all
-
-robot.get_digital_input(0)
-robot.get_analog_input(0)
-robot.get_tool_input(0)
-
-robot.wait_for_input(0, True, timeout=10.0)  # block until pin 0 goes high
-```
+For joint-space moves (when `ik_reference` is active or `linear=False`), `is_moving()` compares joint angles. For Cartesian moves, it compares TCP pose. When no target is set (e.g., after a relative move without `move_to`), it returns `False`.
 
 ---
 
-## Configuration
+## More API
 
-URKit uses a YAML config file (`config.yaml`) to persist settings between sessions.
+Less common but useful when you need them.
 
-### Location
+### Digital I/O
 
-URKit searches for `config.yaml` in this order:
-1. Explicit path via `--config` flag or `load_config("path")`
-2. Project root (where `src/urkit` lives)
-3. Current working directory
-
-### Keys
-
-| Key | Description | Example |
-|-----|-------------|---------|
-| `robot_ip` | Robot IP address | `192.168.1.50` |
-| `points_path` | Path to SQLite points database | `points.db` |
-| `gripper` | Gripper preset name | `hand-e`, `2f-85`, `2f-140`, `digital` |
-| `ik_reference` | IK reference posture (prevents elbow flipping) | `home` |
-| `default_vel` | Default linear velocity (m/s) | `0.5` |
-| `default_acc` | Default linear acceleration (m/s²) | `0.3` |
-| `expert_mode` | Disable safety speed clamping | `false` |
-
-### Gripper Config
-
-```yaml
-gripper: digital
-gripper_config:
-  pin: 3
-  close_on_high: true
-```
-
-```yaml
-gripper: hand-e
-gripper_config:
-  force: 50
-  speed: 80
-```
-
-### CLI Override Precedence
-
-1. **CLI flags.** `urkit teach 192.168.1.50 --gripper none`
-2. **Config file.** Values from `config.yaml`
-3. **Built-in defaults.** `points.db`, no gripper, 0.5 m/s velocity
-
-### Saving Config
-
-The CLI **never** modifies your config file automatically. Press **Y** inside the teach pendant to save. This way you only save settings you've actually tested.
-
-```bash
-urkit teach 192.168.1.50 --gripper hand-e  # test, then press Y
-urkit teach                               # next time: reads from config
-```
-
-Multiple workcells:
-
-```bash
-urkit teach --config station_a.yaml   # press Y to save
-urkit teach --config station_b.yaml   # separate config
-```
-
-### Programmatic
+Pins 0–7 are standard, 8–15 configurable, 16–17 tool.
 
 ```python
-from urkit import load_config, resolve_config
+# Outputs
+robot.set_digital_output(0, True)
+robot.set_digital_outputs({0: True, 1: False, 8: True})
+robot.set_digital_outputs(False)      # clear all pins 0–15
+robot.get_digital_output(0)           # read back output state
 
-config = load_config()                          # auto-resolve
-config = load_config("/path/to/my.yaml")        # explicit path
-path = resolve_config()                         # returns Path or None
-robot = URRobot.from_config({"robot_ip": "192.168.1.50", "gripper": "2f-85"})
+# Inputs
+robot.get_digital_input(0)
+robot.wait_for_input(0, True, timeout=10.0)  # block until pin 0 goes high
+
+# Analog
+robot.get_analog_input(0)             # read analog input (pin 0–1)
+robot.get_analog_output(0)            # read analog output (pin 0–1)
+
+# Tool I/O
+robot.get_tool_input(0)               # tool digital input (pin 0–1)
+robot.get_tool_output(0)              # tool digital output (pin 0–1)
 ```
+
+### Geometry
+
+Conversion utilities for rotation vectors, quaternions, and RPY angles (rxyz convention, same as UR teach pendant):
+
+```python
+from urkit import (
+    orient_tcp,
+    orient_tcp_down,
+    quat_to_rotvec,
+    quat_to_rpy,
+    rpy_to_quat,
+    rotvec_to_quat,
+)
+
+# Orient TCP along an arbitrary direction (minimal rotation)
+new_pose = orient_tcp(current_pose, [0, 0, -1])  # point down
+new_pose = orient_tcp(current_pose, [1, 0, 0])   # point forward
+
+# Orient TCP straight down (convenience wrapper)
+new_pose = orient_tcp_down(current_pose)
+
+# Rotation conversions
+q = rotvec_to_quat([0, 0, 1.57])   # rotvec → quaternion (x, y, z, w)
+rv = quat_to_rotvec(q)              # quaternion → rotvec
+rpy = quat_to_rpy(q)                # quaternion → RPY (radians)
+q = rpy_to_quat(0, 0, 1.57)        # RPY → quaternion
+```
+
+### Robot Lifecycle
+
+Manual power and brake control via the Dashboard:
+
+```python
+robot.power_on()          # power on (skips if already on)
+robot.release_brakes()    # release brakes (enable control)
+robot.recover()           # clear protective stop
+robot.power_off()         # power off
+```
+
+The constructor handles all of this automatically. Use these methods when you need fine-grained control (e.g., recovering from a safety stop without recreating the robot).
+
+TCP and payload can be set manually (gripper presets do this automatically):
+
+```python
+robot.set_tcp_offset([0, 0, 0.15, 0, 0, 0])
+robot.set_payload(1.5, [0, 0, 0.05])  # mass (kg), center of gravity [x, y, z]
+```
+
+Clean shutdown:
+
+```python
+robot.disconnect()  # close RTDE, Dashboard, points DB, gripper
+```
+
+`disconnect()` is called automatically on garbage collection. Call it explicitly to release resources immediately.
 
 ---
 
@@ -686,8 +833,6 @@ Full `ur_rtde` documentation: <https://sdurobotics.gitlab.io/ur_rtde/>
 robot.connection_lost       # bool: check if RTDE dropped
 robot.reconnect_rtde()      # reconnect after a drop
 ```
-
-`disconnect()` is called automatically when the robot object is garbage collected.
 
 ### Error Handling
 
@@ -716,13 +861,8 @@ Common runtime errors:
 
 When the robot enters protective stop or the RTDE connection drops, motion commands raise `URKitConnectionError` and the program should exit. The CLI handles this automatically.
 
-### Connection Notes
-
-The `URRobot` constructor takes a few seconds on first call: it validates the connection, checks remote mode, powers on the robot, releases brakes, and connects RTDE. Subsequent calls are faster if the robot is already running.
-
 ---
 
 ## Changelog
 
 See [CHANGELOG.md](CHANGELOG.md) for the full version history.
-

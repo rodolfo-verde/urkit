@@ -5,13 +5,8 @@ Resolves ``config.yaml`` relative to the project root or an explicit path.
 
 Usage::
 
-    from urkit import load_config
-
-    config = load_config()  # tries config.yaml in the project root
-    config = load_config("/path/to/my.yaml")  # explicit path
-
-    # Or create a robot directly from config:
     from urkit import URRobot
+
     robot = URRobot.from_config("config.yaml")
     robot = URRobot.from_config("config.yaml", ip="10.0.0.50")  # override IP
 
@@ -71,12 +66,12 @@ from pathlib import Path
 import yaml
 
 
-__all__ = ["resolve_config", "load_config"]
+__all__: list[str] = []
 
 _DEFAULT_NAME = "config.yaml"
 
 
-def resolve_config(path: Path | str | None = None) -> Path | None:
+def _resolve_config(path: Path | str | None = None) -> Path | None:
     """Find and return a config file path, or ``None`` if not found.
 
     Args:
@@ -104,19 +99,19 @@ def resolve_config(path: Path | str | None = None) -> Path | None:
     return None
 
 
-def load_config(path: Path | str | None = None) -> dict[str, object]:
+def _load_config(path: Path | str | None = None) -> dict[str, object]:
     """Load a YAML config file and return it as a dict.
 
     Returns ``{}`` if the file is not found, empty, or invalid.
 
     Args:
-        path: Explicit path to a YAML file. If ``None``, uses
-            :func:`resolve_config` to search for ``config.yaml``.
+        path: Explicit path to a YAML file. If ``None``, searches for
+            ``config.yaml`` in the project root, then the CWD.
 
     Returns:
         A dict with config keys, or ``{}`` on any error.
     """
-    resolved = resolve_config(path)
+    resolved = _resolve_config(path)
     if resolved is None:
         return {}
     try:
