@@ -277,7 +277,7 @@ class Motion:
         speed_vector: list[float],
         *,
         threshold: float = 5.0,
-        acceleration: float = 0.1,
+        acc: float = 0.1,
         zero_first: bool = True,
         timeout: float | None = None,
         max_distance: float | None = None,
@@ -406,7 +406,7 @@ class Motion:
 
                 with _suppress_rtde_stderr():
                     t_start = self._rtde_c.initPeriod()
-                    self._rtde_c.speedL(speed_vector, acceleration, 0.002)
+                    self._rtde_c.speedL(speed_vector, acc, 0.002)
 
                 # Check force/torque for contact — only on moving axes
                 current = list(self._rtde_r.getActualTCPForce())
@@ -436,7 +436,7 @@ class Motion:
         self,
         speed_vector: list[float],
         duration: float,
-        acceleration: float = 0.1,
+        acc: float = 0.1,
         dt: float = 0.002,
     ) -> None:
         """Move at a constant Cartesian velocity for a given duration.
@@ -495,7 +495,7 @@ class Motion:
 
                 with _suppress_rtde_stderr():
                     t_start = self._rtde_c.initPeriod()
-                    self._rtde_c.speedL(speed_vector, acceleration, dt)
+                    self._rtde_c.speedL(speed_vector, acc, dt)
                     self._rtde_c.waitPeriod(t_start)
         except MotionError:
             raise

@@ -1659,7 +1659,7 @@ class URRobot:
         """Stop any ongoing speed motion (delta move)."""
         self._motion.speed_stop()
 
-    def enable_freedrive(self, mode: FreedriveMode = FreedriveMode.ALL) -> None:
+    def enable_freedrive(self, mode: FreedriveMode | list[int] = FreedriveMode.ALL) -> None:
         """Enable freedrive mode.
 
         Args:

@@ -236,7 +236,7 @@ def _draw_moving_screen(
     """
     width = 72
     try:
-        pose = robot.get_tcp_pose()
+        pose = robot.get_current_point()
         joints = robot.get_joint_positions()
     except Exception:
         pose = [0, 0, 0, 0, 0, 0]
@@ -298,7 +298,7 @@ def _draw_screen(
 
     # Get live telemetry
     try:
-        pose = robot.get_tcp_pose()
+        pose = robot.get_current_point()
         joints = robot.get_joint_positions()
     except Exception:
         pose = [0, 0, 0, 0, 0, 0]
@@ -346,7 +346,7 @@ def _draw_screen(
 
     # Payload and TCP info
     try:
-        payload = robot.get_payload()
+        payload = robot.payload
         if payload == 0:
             tcp_label = f"{dim('0.0kg (no payload)')}"
         else:
@@ -726,7 +726,7 @@ def _submenu_goto_point(
 
         # Pre-check: verify the pose is reachable before moving
         try:
-            pose = robot.get_pose(name)
+            pose = robot.get_point(name)
             robot.inverse_kinematics(pose)
         except MotionError:
             messages.append(f"Unreachable: '{name}' — no IK solution")
@@ -736,8 +736,8 @@ def _submenu_goto_point(
         mode_label = "cartesian" if is_cartesian else "joint"
 
         # Capture start pose and resolve target before moving
-        start_pose = list(robot.get_tcp_pose())
-        target_pose = robot.get_pose(name)
+        start_pose = list(robot.get_current_point())
+        target_pose = robot.get_point(name)
 
         # Move asynchronously
         if expert_mode:
@@ -976,7 +976,7 @@ def _submenu_orient_tcp(
             robot.disable_freedrive()
             state["freedrive"] = False
 
-        pose = robot.get_tcp_pose()
+        pose = robot.get_current_point()
         target = orient_tcp(pose, direction)
         try:
             robot.inverse_kinematics(target)
@@ -1176,7 +1176,7 @@ def _teach_pendant(
 
     # Read the robot's current speed slider so the display matches reality.
     try:
-        state["speed_slider"] = robot.get_speed_slider()
+        state["speed_slider"] = robot.speed_slider
     except Exception:
         pass  # keep default 1.0 if unreadable
 
@@ -1322,7 +1322,7 @@ def _teach_pendant(
 
                         # Pre-check: verify the target pose is reachable
                         try:
-                            pose = robot.get_tcp_pose()
+                            pose = robot.get_current_point()
                             target = transform_pose_delta(
                                 pose, delta, frame=state["move_frame"]
                             )
@@ -1516,7 +1516,7 @@ def _teach_pendant(
                     try:
                         pct = float(val)  # type: ignore
                         factor = max(0.0, min(pct / 100.0, 1.0))
-                        robot.set_speed_slider(factor)
+                        robot.speed_slider = factor
                         state["speed_slider"] = factor
                         messages.append(f"Speed slider: {int(factor * 100)}%")
                     except (ValueError, TypeError):
