@@ -2,9 +2,27 @@
 
 [![PyPI](https://img.shields.io/pypi/v/urkit.svg)](https://pypi.org/project/urkit/)
 
-**URKit** is a Python toolkit for [Universal Robots](https://www.universal-robots.com/) e-Series robots that makes the common stuff simple and gets out of the way for everything else.
+**URKit** makes it easy to get a Universal Robots e-Series robot moving from Python.
 
-Built on [`ur_rtde`](https://sdurobotics.gitlab.io/ur_rtde/), it packages the operations you reach for most: connecting, moving to named points, gripper control, telemetry, and I/O, while exposing the raw RTDE interfaces for anything deeper.
+## What it is
+
+A thin layer over [`ur_rtde`](https://sdurobotics.gitlab.io/ur_rtde/) that handles the common stuff: connecting, teaching named points, moving between them, gripper control, telemetry. Raw RTDE interfaces are exposed for anything deeper.
+
+No .urp files, no Dashboard API, no extra programs to run on the robot. Just connect over the network and go. Handles power-on, brake release, and RTDE setup in the constructor so you don't have to.
+
+Comes with an interactive teach pendant CLI for positioning the robot and saving waypoints, plus a Python API for scripting motion, gripper control, I/O, and telemetry.
+
+## When to use this
+
+Projects where the robot is part of something bigger. Computer vision, machine learning, sensor fusion, data logging. If your project lives in Python, keep the robot control in Python too.
+
+Built for labs and research setups where you need to get the robot moving fast and integrate it with other software. Not designed as a drop-in replacement for Polyscope in production cells, but perfectly capable for anything that runs from a PC.
+
+## How it works
+
+Use the CLI to position the robot and save named waypoints. Then reference them by name in your code: move to points, apply offsets, run sequences. Points are stored in a local SQLite database, no robot-side setup needed.
+
+The typical workflow: teach points with the pendant, write a few lines of Python to string them together, run it. Add vision, add sensors, add logic. The robot is just one component in your pipeline.
 
 ---
 
@@ -44,7 +62,7 @@ Built on [`ur_rtde`](https://sdurobotics.gitlab.io/ur_rtde/), it packages the op
 pip install -U urkit
 ```
 
-The `-U` (upgrade) flag ensures you always get the latest version — this project is in early development and changes frequently.
+The `-U` (upgrade) flag ensures you always get the latest version. This project is in early development and changes frequently.
 
 Requires Python 3.8+ and a Universal Robots e-Series (UR3e to UR30).
 
@@ -283,7 +301,8 @@ All movement and orientation keys support **hold-to-repeat**.
     <td align="center" style="width:34%">
       <table>
         <tr><th>Key</th><th>Action</th></tr>
-        <tr><td><code>F</code></td><td>Freedrive (OFF → ALL → XYZ+Rz)</td></tr>
+        <tr><td><code>F</code></td><td>Freedrive toggle (ALL ↔ XYZ)</td></tr>
+        <tr><td><code>3</code></td><td>Freedrive axis menu (toggle individual axes)</td></tr>
         <tr><td><code>M</code></td><td>Toggle frame (BASE / TOOL)</td></tr>
         <tr><td><code>N</code></td><td>Go To mode (Cartesian / Joint)</td></tr>
         <tr><td><code>T</code></td><td>Open TCP orient submenu (6 directions)</td></tr>
@@ -476,11 +495,11 @@ while robot.is_moving():
     time.sleep(0.01)
 ```
 
-**Teach pendant Go To** uses this pattern internally — Space cancels the move and returns to the menu.
+**Teach pendant Go To** uses this pattern internally. Space cancels the move and returns to the menu.
 
 #### Pose Format
 
-A pose is `[x, y, z, rx, ry, rz]`: position in meters and orientation as a **rotation vector** (axis-angle in radians). This is not RPY (roll/pitch/yaw). The teach pendant displays RPY in degrees, which is a different representation. Values you see on the pendant won't match `get_tcp_pose()` directly.
+A pose is `[x, y, z, rx, ry, rz]`: position in meters and orientation as a **rotation vector** (axis-angle in radians). This is not RPY (roll/pitch/yaw). The teach pendant displays RPY in degrees, which is a different representation. Values you see on the pendant won't match `get_current_point()` directly.
 
 #### Offsets
 
@@ -497,8 +516,8 @@ robot.move_to("pick", offset=[0, 0, 0.05, 0, 0.1, 0])  # full with rotation
 Get a pose without moving. Useful for logging, comparisons, or custom motion:
 
 ```python
-pose = robot.get_pose("pick")
-pose = robot.get_pose("pick", offset=[0, 0, 0.05, 0, 0, 0])  # with offset
+point = robot.get_point("pick")
+point = robot.get_point("pick", offset=[0, 0, 0.05, 0, 0, 0])  # with offset
 robot.move_to(pose)  # move to the resolved pose later
 ```
 
@@ -514,11 +533,11 @@ robot.move_relative(delta_z=0.05)  # 5cm along tool Z
 - **BASE** (default): delta relative to robot base
 - **TOOL**: delta relative to TCP orientation
 
-#### IK Reference (recommended)
+#### IK Reference
 
 **Problem:** When the robot has multiple valid joint configurations to reach the same TCP pose (e.g., elbow up vs. elbow down), it can unexpectedly flip its posture between moves. This is called an **IK ambiguity** and it causes "weird" movements where the robot takes a strange path or flips its wrist.
 
-**Solution:** Set an **IK reference posture** — a saved point that defines your preferred arm configuration. The robot then stays close to that posture for all moves.
+**Solution:** Set an **IK reference posture**, a saved point that defines your preferred arm configuration. The robot then stays close to that posture for all moves.
 
 ```python
 # 1. Put the robot in your preferred posture (e.g., "home")
@@ -526,7 +545,7 @@ robot.move_relative(delta_z=0.05)  # 5cm along tool Z
 # 3. Set as IK reference:
 robot.ik_reference = "home"
 
-# Now all moves stay close to that posture — no elbow flipping
+# Now all moves stay close to that posture, no elbow flipping
 robot.move_to("pick")
 robot.move_to("place")
 robot.move_relative(delta_z=-0.05)
@@ -539,7 +558,7 @@ robot_ip: 192.168.1.50
 ik_reference: home    # prevents weird elbow/wrist flips
 ```
 
-**How it works:** The robot's inverse kinematics solver uses the reference posture as a bias (`qnear`). The TCP still reaches the exact same pose, but the arm configuration (elbow up/down, wrist orientation) stays consistent with your reference.
+**How it works:** The robot's inverse kinematics solver uses the reference posture as a bias (`qnear`). The TCP still reaches the exact same pose, but the arm configuration (elbow up/down, wrist orientation) stays consistent with your reference. Under the hood, poses are resolved to joint angles and sent as `moveJ` instead of `moveL`.
 
 **Per-move override:**
 
@@ -549,11 +568,16 @@ robot.move_to("weird_pose", ik_reference=None) # one move without it
 robot.move_to("back", ik_reference="current") # use current joints
 ```
 
-**When to use it:** Almost always. If you've ever seen the robot move in a way that looked "wrong" or flipped its elbow unexpectedly, this is what fixes it. Set it once in config.yaml and forget about it.
+**When to use it:**
+
+- **Use it** for sequences of positional moves between waypoints: pick/place paths, assembly sequences, anything where the robot travels between distant points. It prevents elbow/wrist flipping.
+- **Don't use it** for rotation-heavy movements (orientation adjustments, fine-tuning angles). The `qnear` seed can push joints into unexpected configs for pure rotations, and you lose the controller's native Cartesian trajectory planner (lookahead, smoothing). Set `ik_reference=None` for these moves.
+
+Default is `None` (controller handles IK natively). Set it globally when most of your moves are positional, and override per-move when you need rotations.
 
 #### Point Management
 
-Points are stored in the active TCP frame, so they work with any tool — swap grippers and your saved points stay valid.
+Points are stored in the active TCP frame, so they work with any tool. Swap grippers and your saved points stay valid.
 
 ```python
 robot.save_point("here")
@@ -572,42 +596,32 @@ robot.move_relative(delta_z=0.05, frame=MoveFrame.TOOL)  # 5cm along tool Z
 robot.move_relative([0, 0.01, 0, 0, 0, 0])  # full 6-element delta
 ```
 
-Individual delta parameters (`delta_x`, `delta_y`, `delta_z`, `delta_rx`, `delta_ry`, `delta_rz`) are mutually exclusive with the `delta` list — use one or the other.
+Individual delta parameters (`delta_x`, `delta_y`, `delta_z`, `delta_rx`, `delta_ry`, `delta_rz`) are mutually exclusive with the `delta` list. Use one or the other.
 
 #### Sequences
 
 ```python
-robot.move_relative(delta_y=0.01)  # 1cm along Y
-robot.move_relative(delta_z=0.05, frame=MoveFrame.TOOL)  # 5cm along tool Z
-robot.move_relative([0, 0.01, 0, 0, 0, 0])  # full 6-element delta
+# Both styles work:
+robot.move_sequence("a", "b", "c")          # variadic
+robot.move_sequence(["a", "b", "c"])        # list
 ```
 
-Individual delta parameters (`delta_x`, `delta_y`, `delta_z`, `delta_rx`, `delta_ry`, `delta_rz`) are mutually exclusive with the `delta` list — use one or the other.
+`move_sequence` builds a path from all targets and executes it in a single call with blending. Requires at least 2 targets. Two modes:
 
-#### Sequences
-
-```python
-# Chain multiple moves into one call
-robot.move_sequence(["a", "b", "c"])
-```
-
-With **IK reference** (recommended), all poses resolve to joints using chained inverse kinematics — the first pose resolves relative to the reference, the second relative to the first's resolved joints, and so on. This keeps the arm configuration consistent throughout the sequence:
+**With `ik_reference`** (positional paths): All poses resolve to joints using chained inverse kinematics. The first pose resolves relative to the reference, the second relative to the first's resolved joints, and so on. Executed as a single `moveJ(path)` call. Keeps the arm configuration consistent (no elbow flipping):
 
 ```python
 robot.ik_reference = "home"
-robot.move_sequence(["a", "b", "c"])  # chained IK, no elbow flipping
+robot.move_sequence(["a", "b", "c"], blend_radius=0.02)  # 2cm blend
 ```
 
-With **blend_radius**, the robot rounds corners instead of stopping at each waypoint:
+**Without `ik_reference`** (Cartesian path): Builds a blended `moveL(path)`. The controller handles IK natively, better for rotation-heavy sequences where `ik_reference` causes unexpected joint behavior:
 
 ```python
-robot.move_sequence(
-    ["a", "b", "c"],
-    blend_radius=0.02,  # 2cm blend between waypoints
-)
+robot.move_sequence(["a", "b", "c"], blend_radius=0.02)  # blended Cartesian path
 ```
 
-`move_sequence` requires at least 2 targets. Without `ik_reference`, it falls back to individual `moveL` calls (legacy behavior, no blending).
+Before sending any move, it checks that each pose has a valid IK solution. Unreachable poses raise `MotionError`. If a named point doesn't exist, it raises `PointError` instead of silently falling back.
 
 #### Contact Detection
 
@@ -631,7 +645,7 @@ robot.move_until_contact(speed_z=-0.02, timeout=10.0, max_distance=0.2)
 for _ in range(3):
     if robot.move_until_contact(speed_z=-0.02, timeout=10.0, max_distance=0.2):
         break  # contact detected
-    # No contact — back off and retry
+    # No contact, back off and retry
     robot.move_relative(delta_z=0.01)
 
 # Manual zero (e.g. before custom force-based logic)
@@ -650,33 +664,36 @@ robot.move_velocity([0, 0, -0.02, 0, 0, 0], duration=1.0)
 from urkit import FreedriveMode
 
 robot.enable_freedrive()              # all 6 axes free
-robot.enable_freedrive(FreedriveMode.XYZ)      # linear axes + Rz rotation
-robot.enable_freedrive(FreedriveMode.ROTATION) # rotation only
+robot.enable_freedrive(FreedriveMode.XYZ)      # linear axes only (X, Y, Z)
+robot.enable_freedrive(FreedriveMode.ROTATION) # rotation only (Roll, Pitch, Yaw)
+robot.enable_freedrive([1, 1, 1, 1, 0, 0])    # custom: X+Y+Z+Roll+Pitch
 robot.disable_freedrive()             # disable before sending motion commands
 robot.is_freedrive_active             # check state
 ```
+
+**Teach pendant:** Press `F` to toggle freedrive (ALL ↔ XYZ). Press `3` to open the axis selection menu arrow keys navigate, space toggles each axis on/off, enter applies.
 
 #### Speed Control
 
 ```python
 robot.stop()                          # stop current move immediately (stopL + stopJ)
 robot.speed_stop()                    # stop velocity-controlled motion (not E-stop)
-robot.set_speed_slider(0.5)           # 50% velocity cap
-robot.get_speed_slider()              # read current slider (0.0-1.0)
+robot.speed_slider = 0.5           # 50% velocity cap
+robot.speed_slider              # read current slider (0.0-1.0)
 ```
 
 The speed slider controls the pendant's speed multiplier. It's global, persistent, and affects all motion commands.
 
 #### Changing Default Speed & Acceleration
 
-Override the constructor defaults at runtime — all subsequent moves pick up the new values:
+Override the constructor defaults at runtime. All subsequent moves pick up the new values:
 
 ```python
-robot.set_speed(0.1)   # slow for precision work
+robot.default_vel = 0.1   # slow for precision work
 robot.move_to("insert")
-robot.set_speed(0.5)   # back to normal
+robot.default_vel = 0.5   # back to normal
 
-robot.set_acc(0.05)    # gentle acceleration
+robot.default_acc = 0.05    # gentle acceleration
 
 robot.default_vel      # read current velocity (m/s)
 robot.default_acc      # read current acceleration (m/s²)
@@ -691,16 +708,14 @@ joints = robot.inverse_kinematics([0.5, 0, 0.3, 0, 0, 0])
 ### Telemetry
 
 ```python
-pose = robot.get_tcp_pose()           # [x, y, z, rx, ry, rz]
-joints = robot.get_joint_positions()  # [j0..j5]
-force = robot.get_tcp_force()         # [fx, fy, fz, mx, my, mz]
-mode = robot.get_robot_mode()         # "REMOTE_CONTROL", "SERVOING", etc.
-payload = robot.get_payload()         # kg
-robot.current_point()                 # {"pose": [...], "joints": [...]}
-robot.is_protective_stopped()         # bool
-robot.is_emergency_stopped()          # bool
-robot.is_remote_mode()                # bool — check remote control state
-robot.get_polyscope_version()         # e.g. "5.25.0" or None
+pose = robot.get_current_point()           # [x, y, z, rx, ry, rz]
+pose = robot.get_current_point(offset_z=0.05)  # with offset
+joints = robot.get_joint_positions()       # [j0..j5]
+force = robot.get_tcp_force()              # [fx, fy, fz, mx, my, mz]
+mode = robot.get_robot_mode()              # "REMOTE_CONTROL", "SERVOING", etc.
+payload = robot.payload                    # kg
+robot.is_protective_stopped()              # bool
+robot.is_emergency_stopped()               # bool
 ```
 
 #### Arrival Detection
@@ -718,7 +733,7 @@ while robot.is_moving():
 while robot.is_moving(position_tolerance=0.001, orientation_tolerance=0.017):
     time.sleep(0.01)
 
-# Joint moves — tighter joint tolerance
+# Joint moves, tighter joint tolerance
 while robot.is_moving(joint_tolerance=0.001):
     time.sleep(0.01)
 ```
@@ -799,7 +814,7 @@ The constructor handles all of this automatically. Use these methods when you ne
 TCP and payload can be set manually (gripper presets do this automatically):
 
 ```python
-robot.set_tcp_offset([0, 0, 0.15, 0, 0, 0])
+robot.tcp_offset = [0, 0, 0.15, 0, 0, 0]
 robot.set_payload(1.5, [0, 0, 0.05])  # mass (kg), center of gravity [x, y, z]
 ```
 

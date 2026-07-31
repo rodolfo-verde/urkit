@@ -74,7 +74,7 @@ class TestTelemetry:
     """Test telemetry reads against a real robot."""
 
     def test_tcp_pose_returns_list(self, robot):
-        pose = robot.get_tcp_pose()
+        pose = robot.get_current_point()
         assert isinstance(pose, list)
         assert len(pose) == 6
         assert all(isinstance(v, (int, float)) for v in pose)
@@ -95,18 +95,11 @@ class TestTelemetry:
         assert isinstance(mode, str)
         assert len(mode) > 0
 
-    def test_payload_returns_float(self, robot):
-        payload = robot.get_payload()
-        assert isinstance(payload, (int, float))
-        assert payload >= 0
-
-    def test_current_point(self, robot):
-        pos = robot.current_point()
-        assert isinstance(pos, dict)
-        assert "pose" in pos
-        assert "joints" in pos
-        assert len(pos["pose"]) == 6
-        assert len(pos["joints"]) == 6
+    def test_get_current_point(self, robot):
+        pos = robot.get_current_point()
+        assert isinstance(pos, list)
+        assert len(pos) == 6
+        assert all(isinstance(v, (int, float)) for v in pos)
 
     def test_protective_stop_boolean(self, robot):
         stopped = robot.is_protective_stopped()
@@ -172,7 +165,7 @@ class TestMotionValidation:
 
     def test_tcp_offset_wrong_count(self, robot):
         with pytest.raises(MotionError, match="6 values"):
-            robot.set_tcp_offset([1, 2, 3])
+            robot.tcp_offset = [1, 2, 3]
 
     def test_payload_negative(self, robot):
         with pytest.raises(MotionError, match=">= 0"):
@@ -180,7 +173,7 @@ class TestMotionValidation:
 
     def test_speed_slider_invalid(self, robot):
         with pytest.raises(MotionError):
-            robot.set_speed_slider(1.5)
+            robot.speed_slider = 1.5
 
     def test_inverse_kinematics_unreachable_raises(self, robot):
         # Pose far outside any robot's workspace
@@ -190,11 +183,12 @@ class TestMotionValidation:
 
     def test_inverse_kinematics_current_pose(self, robot):
         # IK of current pose should return joints close to current joints
-        current = robot.current_point()
-        joints = robot.inverse_kinematics(current["pose"], seed=current["joints"])
+        pose = robot.get_current_point()
+        current_joints = robot.get_joint_positions()
+        joints = robot.inverse_kinematics(pose, seed=current_joints)
         assert len(joints) == 6
         # Should be very close to seed
-        for a, b in zip(joints, current["joints"]):
+        for a, b in zip(joints, current_joints):
             assert abs(a - b) < 0.1
 
 
@@ -229,17 +223,17 @@ class TestMotion:
 
     def test_move_relative_linear(self, robot):
         """Test a tiny linear move and return."""
-        original = robot.get_tcp_pose()
+        original = robot.get_current_point()
         robot.move_relative([0, 0.001, 0, 0, 0, 0], vel=0.1, acc=0.1)
         robot.move_relative([0, -0.001, 0, 0, 0, 0], vel=0.1, acc=0.1)
         # Robot should be close to original position
-        current = robot.get_tcp_pose()
+        current = robot.get_current_point()
         assert abs(current[1] - original[1]) < 0.005
 
     def test_speed_slider(self, robot):
         """Test setting speed slider."""
-        robot.set_speed_slider(0.5)
-        robot.set_speed_slider(1.0)  # Reset
+        robot.speed_slider = 0.5
+        robot.speed_slider = 1.0  # Reset
 
     def test_connection_lost_raises(self, robot):
         """Test that motion fails when connection is lost."""
@@ -315,7 +309,7 @@ class TestPointManagement:
 
     def test_move_to_raw_pose(self, robot):
         """Test moving to a raw pose (current position)."""
-        current = robot.get_tcp_pose()
+        current = robot.get_current_point()
         # Moving to current pose should not raise
         robot.move_to(current, vel=0.1, acc=0.1)
 

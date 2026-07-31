@@ -363,12 +363,18 @@ def _draw_screen(
         lines.append(f" {blue('IK Ref:'.ljust(lw))} {dim('None')}")
 
     if state["freedrive"]:
-        mode_label = state["freedrive_mode"].name
-        if mode_label == "XYZ":
-            mode_label = "XYZ+Rz"
-        lines.append(f" {blue('Freedrive:'.ljust(lw))} {green('ON')} ({mode_label})")
+        mode = state["freedrive_mode"]
+        if isinstance(mode, list):
+            label = "+".join(
+                ["X", "Y", "Z", "R", "P", "Y"][i]
+                for i, v in enumerate(mode)
+                if v
+            )
+        else:
+            label = mode.name
+        lines.append(f" {blue('Freedrive:'.ljust(lw))} {green('ON')} ({label})")
     else:
-        lines.append(f" {blue('Freedrive:'.ljust(lw))} {red('OFF')} {dim('[F: cycle ALL/XYZ+Rz]')}")
+        lines.append(f" {blue('Freedrive:'.ljust(lw))} {red('OFF')} {dim('[F: cycle ALL/XYZ]')}")
     slider_pct = int(state["speed_slider"] * 100)
     slider_color = green if state["speed_slider"] >= 0.5 else yellow if state["speed_slider"] >= 0.2 else red
     lines.append(f" {blue('Speed:'.ljust(lw))} {slider_color(f'{slider_pct}%')} {dim('[0: set]')}")
@@ -402,7 +408,7 @@ def _draw_screen(
     lines.append(f"  {yellow('STEP:')}    {yellow('1')}: Linear (mm)  {yellow('2')}: Angular (°)  {yellow('.')}: Reset")
     lines.append(f"  {yellow('GRIPPER:')} {yellow('X')}: Open  {yellow('C')}: Close  {yellow('V')}: Position  {yellow('6')}: Speed  {yellow('7')}: Force")
     lines.append(f"  {yellow('POINTS:')}  {yellow('B')}: Save  {yellow('G')}: Go To  {yellow('H')}: Delete  {yellow('R')}: Rename  {yellow('P')}: Explorer")
-    lines.append(f"  {yellow('OTHER:')}   {yellow('F')}: Freedrive  {yellow('M')}: Frame  {yellow('N')}: GoTo Mode  {yellow('T')}: TCP Orient")
+    lines.append(f"  {yellow('OTHER:')}   {yellow('F')}: Freedrive  {yellow('3')}: Axes  {yellow('M')}: Frame  {yellow('N')}: GoTo  {yellow('T')}: TCP")
     lines.append(f"  {yellow('      ')}   {yellow('0')}: Speed  {yellow('Y')}: Save Config")
     lines.append(f"  {yellow('EXIT:')}    {yellow('ESC')}")
     lines.append(dim("=" * width))
@@ -988,6 +994,108 @@ def _submenu_orient_tcp(
 
 
 # ------------------------------------------------------------------
+# Freedrive axis selection submenu
+# ------------------------------------------------------------------
+
+_FD_AXIS_LABELS = ["X", "Y", "Z", "Roll", "Pitch", "Yaw"]
+
+
+def _submenu_freedrive_axes(
+    robot: URRobot,
+    state: dict,
+    messages: list[str],
+) -> None:
+    """Interactive submenu to toggle individual freedrive axes."""
+    current_mode = state.get("freedrive_mode", FreedriveMode.ALL)
+    if current_mode == FreedriveMode.ALL:
+        axes = [1, 1, 1, 1, 1, 1]
+    elif current_mode == FreedriveMode.XYZ:
+        axes = [1, 1, 1, 0, 0, 0]
+    elif current_mode == FreedriveMode.ROTATION:
+        axes = [0, 0, 0, 1, 1, 1]
+    elif isinstance(current_mode, list):
+        axes = list(current_mode)
+    else:
+        axes = [1, 1, 1, 1, 1, 1]
+
+    cursor = 0
+    old_settings = termios.tcgetattr(sys.stdin)
+    new_settings = termios.tcgetattr(sys.stdin)
+    new_settings[3] = new_settings[3] & ~(termios.ICANON | termios.ECHO)
+    termios.tcsetattr(sys.stdin, termios.TCSADRAIN, new_settings)
+    fd = sys.stdin.fileno()
+
+    try:
+        while True:
+            sys.stdout.write("\033[2J\033[1;1H")
+            sys.stdout.write(cyan("  === FREEDRIVE AXES ===") + "\n")
+            sys.stdout.write(dim("  Arrows navigate · Space toggle · Enter apply · ESC cancel") + "\n\n")
+            sys.stdout.write("  " + dim("─" * 40) + "\n")
+
+            for i, label in enumerate(_FD_AXIS_LABELS):
+                marker = green("►") if i == cursor else " "
+                state_str = green("ON") if axes[i] else red("OFF")
+                sys.stdout.write(f"    {marker} {label:<6} {state_str}\n")
+
+            sys.stdout.write("  " + dim("─" * 40) + "\n")
+            active = sum(axes)
+            sys.stdout.write(f"\n  {blue('Active axes:')} {green(str(active))} / 6\n")
+            sys.stdout.write(f"  {dim('Enter')} to apply · {dim('ESC')} to cancel\n")
+            sys.stdout.flush()
+
+            ready, _, _ = select.select([fd], [], [], 0.1)
+            if not ready:
+                continue
+
+            raw = os.read(fd, 64)
+            if not raw:
+                continue
+            text = raw.decode("ascii", errors="replace")
+            i = 0
+            applied = False
+            while i < len(text):
+                ch = text[i]
+                if ch == "\x1b":
+                    if i + 2 < len(text) and text[i + 1] == "[":
+                        key = text[i + 2]
+                        if key == "A":
+                            cursor = max(0, cursor - 1)
+                        elif key == "B":
+                            cursor = min(5, cursor + 1)
+                        i += 3
+                        continue
+                    else:
+                        return  # ESC → cancel
+                if ch == " ":
+                    axes[cursor] = 1 - axes[cursor]
+                elif ch == "\n" or ch == "\r":
+                    applied = True
+                elif ch == "\x03":
+                    return
+                i += 1
+
+            if applied:
+                break
+    finally:
+        termios.tcsetattr(sys.stdin, termios.TCSADRAIN, old_settings)
+
+    if sum(axes) == 0:
+        messages.append("Cancelled — at least 1 axis must be active")
+        return
+
+    try:
+        robot.disable_freedrive()
+        time.sleep(0.2)
+        robot.enable_freedrive(axes)
+        state["freedrive_mode"] = axes
+        state["_fd_custom_axes"] = list(axes)
+        label = "+".join(_FD_AXIS_LABELS[i] for i, v in enumerate(axes) if v)
+        messages.append(f"Freedrive axes: {label}")
+    except MotionError as e:
+        messages.append(f"Freedrive error: {e}")
+
+
+# ------------------------------------------------------------------
 # Key input helpers
 # ------------------------------------------------------------------
 
@@ -1262,29 +1370,35 @@ def _teach_pendant(
                     messages.append("Step sizes reset to defaults")
                     command_handled = True
 
-                # --- Freedrive ---
+                # --- Freedrive (quick cycle: ALL ↔ XYZ) ---
                 elif key == "f":
                     if not state["freedrive"]:
                         try:
-                            robot.enable_freedrive(FreedriveMode.ALL)
+                            mode = state.get("_fd_custom_axes") or FreedriveMode.ALL
+                            robot.enable_freedrive(mode)
                             state["freedrive"] = True
-                            state["freedrive_mode"] = FreedriveMode.ALL
+                            state["freedrive_mode"] = mode
                         except MotionError as e:
                             messages.append(f"Freedrive error: {e}")
                     else:
-                        if state["freedrive_mode"] == FreedriveMode.ALL:
-                            try:
-                                robot.disable_freedrive()
-                                robot.enable_freedrive(FreedriveMode.XYZ)
-                                state["freedrive_mode"] = FreedriveMode.XYZ
-                            except MotionError as e:
-                                messages.append(f"Freedrive error: {e}")
-                        else:
-                            try:
-                                robot.disable_freedrive()
-                                state["freedrive"] = False
-                            except MotionError as e:
-                                messages.append(f"Freedrive error: {e}")
+                        # Toggle between ALL and XYZ
+                        next_mode = FreedriveMode.XYZ if state["freedrive_mode"] == FreedriveMode.ALL else FreedriveMode.ALL
+                        try:
+                            robot.disable_freedrive()
+                            time.sleep(0.2)
+                            robot.enable_freedrive(next_mode)
+                            state["freedrive_mode"] = next_mode
+                            state.pop("_fd_custom_axes", None)
+                        except MotionError as e:
+                            messages.append(f"Freedrive error: {e}")
+                    command_handled = True
+
+                # --- Freedrive axis selection menu ---
+                elif key == "3":
+                    if state["freedrive"]:
+                        _submenu_freedrive_axes(robot, state, messages)
+                    else:
+                        messages.append("Freedrive must be on first (press F)")
                     command_handled = True
 
                 # --- Frame toggle ---

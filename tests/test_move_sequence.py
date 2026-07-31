@@ -121,12 +121,10 @@ class TestResolveIkReference:
         # The mock returns the default IK result
         assert result == [0.0, -0.5, 0.5, -1.5, 1.5, 0.0]
 
-    def test_missing_point_falls_back_to_current(self, robot, mock_rtde_r, caplog):
-        """Non-existent point name should fall back to current joints."""
-        with caplog.at_level(logging.WARNING):
-            result = robot._resolve_ik_reference("nonexistent")
-        assert result == list(mock_rtde_r.getActualQ())
-        assert "point not found" in caplog.text or "falling back" in caplog.text
+    def test_missing_point_raises(self, robot, mock_rtde_r):
+        """Non-existent point name should raise PointError."""
+        with pytest.raises(PointError, match="point not found"):
+            robot._resolve_ik_reference("nonexistent")
 
     def test_joints_list_used_directly(self, robot):
         """Raw joint list should be returned as-is."""
@@ -159,23 +157,31 @@ class TestMoveSequenceValidation:
 
 
 # ------------------------------------------------------------------
-# Tests: move_sequence legacy mode (no ik_reference)
+# Tests: move_sequence without ik_reference (Cartesian path mode)
 # ------------------------------------------------------------------
 
 
-class TestMoveSequenceLegacy:
-    """Test move_sequence without ik_reference (legacy behavior)."""
+class TestMoveSequenceNoIkReference:
+    """Test move_sequence without ik_reference (Cartesian path with blending)."""
 
-    def test_linear_mode_calls_movel(self, robot, mock_rtde_c):
-        """Without ik_reference and linear=True, should call moveL."""
+    def test_linear_mode_calls_movel_path(self, robot, mock_rtde_c):
+        """Without ik_reference and linear=True, should call moveL(path) once."""
         robot.move_sequence(["home", "pick"])
-        # Should have called moveL twice (once per target)
-        assert mock_rtde_c.moveL.call_count == 2
+        # Should call moveL once with a path (not individual calls)
+        assert mock_rtde_c.moveL.call_count == 1
+        # Path should have 2 waypoints, each with 9 elements
+        path = mock_rtde_c.moveL.call_args[0][0]
+        assert len(path) == 2
+        assert len(path[0]) == 9  # [x, y, z, rx, ry, rz, vel, acc, blend]
 
-    def test_joints_mode_calls_movej_ik(self, robot, mock_rtde_c):
-        """Without ik_reference and linear=False, should call moveJ_IK."""
-        robot.move_sequence(["home", "pick"], linear=False)
-        assert mock_rtde_c.moveJ_IK.call_count == 2
+    def test_blend_radius_applied(self, robot, mock_rtde_c):
+        """Blend radius should be applied between waypoints, zero on last."""
+        robot.move_sequence(["home", "pick", "place"], blend_radius=0.02)
+        path = mock_rtde_c.moveL.call_args[0][0]
+        # First two waypoints have blend, last has 0
+        assert path[0][8] == 0.02
+        assert path[1][8] == 0.02
+        assert path[2][8] == 0.0
 
     def test_raw_poses_work(self, robot, mock_rtde_c):
         """Raw pose lists should work as targets."""
@@ -184,7 +190,19 @@ class TestMoveSequenceLegacy:
             [0.3, 0.2, 0.1, 0.0, 0.0, 0.0],
         ]
         robot.move_sequence(poses)
-        assert mock_rtde_c.moveL.call_count == 2
+        # Should call moveL once with a path
+        assert mock_rtde_c.moveL.call_count == 1
+
+    def test_unreachable_pose_raises(self, robot, mock_rtde_c):
+        """Unreachable pose should raise MotionError before moving."""
+        mock_rtde_c.getInverseKinematicsHasSolution.side_effect = [
+            True,   # home is reachable
+            False,  # pick is not
+        ]
+        with pytest.raises(MotionError, match="Pose unreachable"):
+            robot.move_sequence(["home", "pick"])
+        # moveL should not be called
+        assert mock_rtde_c.moveL.call_count == 0
 
 
 # ------------------------------------------------------------------
@@ -197,7 +215,7 @@ class TestMoveSequenceWithIkReference:
 
     def test_ik_reference_resolves_path(self, robot, mock_rtde_c):
         """With ik_reference, should call moveJ(path) once."""
-        robot.move_sequence(["home", "pick", "place"], ik_reference="current")
+        robot.move_sequence(["home", "pick", "place"], linear=False, ik_reference="current")
         # Should call moveJ once with a path (not individual moveL)
         assert mock_rtde_c.moveJ.call_count == 1
         # moveL should NOT be called
@@ -205,7 +223,7 @@ class TestMoveSequenceWithIkReference:
 
     def test_path_format_is_nine_elements(self, robot, mock_rtde_c):
         """Each waypoint in the path should have 9 elements."""
-        robot.move_sequence(["home", "pick"], ik_reference="current")
+        robot.move_sequence(["home", "pick"], linear=False, ik_reference="current")
         call_args = mock_rtde_c.moveJ.call_args
         path = call_args[0][0]  # first positional arg
         assert len(path) == 2  # two waypoints
@@ -216,6 +234,7 @@ class TestMoveSequenceWithIkReference:
         """Last waypoint should have blend_radius=0 (come to rest)."""
         robot.move_sequence(
             ["home", "pick", "place"],
+            linear=False,
             ik_reference="current",
             blend_radius=0.02,
         )
@@ -230,36 +249,27 @@ class TestMoveSequenceWithIkReference:
         # Reset the call count
         mock_rtde_c.getInverseKinematics.reset_mock()
         
-        robot.move_sequence(["home", "pick", "place"], ik_reference="current")
+        robot.move_sequence(["home", "pick", "place"], linear=False, ik_reference="current")
         
         # 3 targets = 3 IK calls (each chained from previous)
         assert mock_rtde_c.getInverseKinematics.call_count == 3
 
     def test_ik_reference_point_name(self, robot, mock_rtde_c):
         """ik_reference as a point name should resolve via IK."""
-        robot.move_sequence(["pick", "place"], ik_reference="home")
+        robot.move_sequence(["pick", "place"], linear=False, ik_reference="home")
         assert mock_rtde_c.moveJ.call_count == 1
 
     def test_ik_reference_joints_list(self, robot, mock_rtde_c):
         """ik_reference as a raw joints list should work."""
         ref_joints = [0.0, -1.0, 1.0, -1.57, 1.57, 0.0]
-        robot.move_sequence(["pick", "place"], ik_reference=ref_joints)
+        robot.move_sequence(["pick", "place"], linear=False, ik_reference=ref_joints)
         assert mock_rtde_c.moveJ.call_count == 1
-
-    def test_async_passed_through(self, robot, mock_rtde_c):
-        """asynchronous parameter should be passed to moveJ(path)."""
-        robot.move_sequence(
-            ["home", "pick"],
-            ik_reference="current",
-            asynchronous=True,
-        )
-        call_kwargs = mock_rtde_c.moveJ.call_args[1]
-        assert call_kwargs.get("asynchronous") is True
 
     def test_vel_acc_in_path(self, robot, mock_rtde_c):
         """Velocity and acceleration should be in each path waypoint."""
         robot.move_sequence(
             ["home", "pick"],
+            linear=False,
             ik_reference="current",
             vel=0.8,
             acc=0.5,
@@ -273,7 +283,7 @@ class TestMoveSequenceWithIkReference:
         """Default vel/acc should be used when not specified."""
         robot._default_vel = 0.5
         robot._default_acc = 0.3
-        robot.move_sequence(["home", "pick"], ik_reference="current")
+        robot.move_sequence(["home", "pick"], linear=False, ik_reference="current")
         path = mock_rtde_c.moveJ.call_args[0][0]
         for waypoint in path:
             assert waypoint[6] == 0.5
@@ -283,7 +293,7 @@ class TestMoveSequenceWithIkReference:
         """When ik_reference is not specified, should use global setting."""
         robot._ik_reference = "home"
         mock_rtde_c.getInverseKinematics.reset_mock()
-        robot.move_sequence(["pick", "place"])  # no ik_reference arg
+        robot.move_sequence(["pick", "place"], linear=False)  # no ik_reference arg
         # Should use global ik_reference and call moveJ(path)
         assert mock_rtde_c.moveJ.call_count == 1
         assert mock_rtde_c.getInverseKinematics.call_count >= 2
@@ -292,5 +302,6 @@ class TestMoveSequenceWithIkReference:
         """Per-call ik_reference=None should override global setting."""
         robot._ik_reference = "home"
         robot.move_sequence(["pick", "place"], ik_reference=None)
-        # Should use legacy mode (individual moveL)
-        assert mock_rtde_c.moveL.call_count == 2
+        # Should use Cartesian path mode (moveL(path)), not joint path
+        assert mock_rtde_c.moveL.call_count == 1
+        assert mock_rtde_c.moveJ.call_count == 0

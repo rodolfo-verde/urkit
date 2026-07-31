@@ -314,7 +314,7 @@ class URRobot:
 
         # Set TCP offset and payload (resolved values)
         if resolved_tcp is not None:
-            self.set_tcp_offset(resolved_tcp)
+            self.tcp_offset = resolved_tcp
         if resolved_payload > 0:
             self.set_payload(resolved_payload, resolved_cog)
         else:
@@ -468,7 +468,7 @@ class URRobot:
                     speed=int(gripper_source.get("speed", 100)),
                 )
             elif isinstance(gripper_source, str):
-                key = gripper_source.strip().upper()
+                key = gripper_source.strip().replace("_", "-").upper()
                 preset = PRESETS.get(key)
                 if preset is not None:
                     resolved_gripper = preset
@@ -825,28 +825,6 @@ class URRobot:
         except Exception as e:
             raise ConnectionError(f"Recovery failed: {e}")
 
-    def is_remote_mode(self) -> bool:
-        """Check if the robot is in remote control mode.
-
-        Uses the Dashboard command 'is in remote control' which returns
-        'True'/'False' regardless of whether a program is running. The
-        'robotmode' command only mentions "remote control" when a remote
-        program is actively executing — returning 'IDLE' when the robot
-        is idle, even if remote control is enabled.
-
-        Returns:
-            True if in remote control mode.
-        """
-        try:
-            if self._dashboard is None:
-                self._connect_dashboard()
-            if self._dashboard is None:
-                return False
-            response = _dashboard_command(self._dashboard, "is in remote control")  # type: ignore
-            return response.strip().lower() == "true"
-        except Exception:
-            return False
-
     def _stop_program(self) -> None:
         """Stop the running program via the Dashboard socket."""
         if self._dashboard is None:
@@ -862,15 +840,13 @@ class URRobot:
     # TCP / payload setup
     # ------------------------------------------------------------------
 
-    def set_tcp_offset(self, tcp_offset: list[float]) -> None:
-        """Set the TCP offset (tool frame).
+    @property
+    def tcp_offset(self) -> list[float]:
+        """Current TCP offset [x, y, z, rx, ry, rz] in meters/radians."""
+        return self._rtde_r.getToolVector()
 
-        Args:
-            tcp_offset: [x, y, z, rx, ry, rz] in meters/radians.
-
-        Raises:
-            MotionError: If the TCP offset cannot be set.
-        """
+    @tcp_offset.setter
+    def tcp_offset(self, tcp_offset: list[float]) -> None:
         if len(tcp_offset) != 6:
             raise MotionError(
                 f"TCP offset must have 6 values, got {len(tcp_offset)}."
@@ -880,6 +856,11 @@ class URRobot:
             logger.info("TCP offset set to %s", tcp_offset)
         except Exception as e:
             raise MotionError(f"Failed to set TCP offset: {e}")
+
+    @property
+    def payload(self) -> float:
+        """Current payload mass in kg."""
+        return self._payload
 
     def set_payload(self, mass: float, center_of_gravity: list[float] | None = None) -> None:
         """Set the tool payload mass and center of gravity.
@@ -967,7 +948,7 @@ class URRobot:
     # Motion
     # ------------------------------------------------------------------
 
-    def get_pose(
+    def get_point(
         self,
         target: str | list[float],
         *,
@@ -1007,9 +988,9 @@ class URRobot:
             PointError: If the named point is not found or offset is invalid.
 
         Example:
-            >>> pose = robot.get_pose("pick")
-            >>> pose = robot.get_pose("pick", offset_z=0.05)
-            >>> robot.move_to(pose)
+            >>> point = robot.get_point("pick")
+            >>> point = robot.get_point("pick", offset_z=0.05)
+            >>> robot.move_to(point)
         """
         point = self._lookup_point(target)
 
@@ -1061,9 +1042,9 @@ class URRobot:
             target: A saved point name (str) or a raw TCP pose
                 [x, y, z, rx, ry, rz].
             linear: If True (default), use Cartesian linear move (moveL).
-                If False, use joint-space move (moveJ). When an IK
-                reference is active, the pose is resolved to joints
-                and a joint-space move is used regardless of this flag.
+                If False, use joint-space move (moveJ). When ``linear=True``,
+                ``ik_reference`` is ignored (moveL doesn't accept a custom
+                IK seed — the controller handles IK internally).
             offset: Optional offset [dx, dy, dz, drx, dry, drz]
                 applied to the target pose before moving. Mutually
                 exclusive with individual offset_* parameters.
@@ -1079,7 +1060,9 @@ class URRobot:
             offset_rx: Roll offset in radians (default 0.0).
             offset_ry: Pitch offset in radians (default 0.0).
             offset_rz: Yaw offset in radians (default 0.0).
-            ik_reference: Per-call IK reference override. One of:
+            ik_reference: Per-call IK reference override. Only applies
+                when ``linear=False`` (joint moves). Ignored for linear
+                moves (moveL doesn't accept a custom IK seed). One of:
 
                 - ``"__global__"`` (default): Use the robot's global
                   ``ik_reference`` setting.
@@ -1141,25 +1124,32 @@ class URRobot:
             self._ik_reference if ik_reference == "__global__" else ik_reference
         )
 
+        # Explicit ik_reference + linear=True is a contradiction
+        if ik_reference != "__global__" and ik_reference is not None and linear:
+            raise MotionError(
+                "Cannot use ik_reference with linear=True. "
+                "ik_reference applies to joint moves only (linear=False). "
+                "Either set linear=False or remove ik_reference."
+            )
+
         try:
-            if effective_ik is not None:
-                # IK reference active: resolve pose to joints with qnear,
-                # then moveJ (prevents elbow/wrist flipping)
-                qnear = self._resolve_ik_reference(effective_ik)
-                joints = self.inverse_kinematics(pose, seed=qnear)
-                self._move_target_joints = list(joints)
-                self._move_target_pose = list(pose)
-                self._motion.movej(joints, vel=vel, acc=acc, asynchronous=asynchronous)
-            elif linear:
-                # No IK reference, linear mode: standard moveL
+            if linear:
+                # Linear mode: moveL, controller handles IK.
+                # ik_reference is ignored — moveL doesn't accept qnear.
                 if not self._rtde_c.getInverseKinematicsHasSolution(pose):
                     raise MotionError(f"Pose unreachable: {pose}")
                 self._move_target_pose = list(pose)
                 self._move_target_joints = None
                 self._motion.movel(pose, vel=vel, acc=acc, asynchronous=asynchronous)
             else:
-                # No IK reference, joint mode: resolve IK without qnear
-                joints = self.inverse_kinematics(pose)
+                # Joint mode: resolve IK (with qnear if ik_reference set),
+                # then moveJ.
+                seed = (
+                    self._resolve_ik_reference(effective_ik)
+                    if effective_ik is not None
+                    else None
+                )
+                joints = self.inverse_kinematics(pose, seed=seed)
                 self._move_target_joints = list(joints)
                 self._move_target_pose = list(pose)
                 self._motion.movej(joints, vel=vel, acc=acc, asynchronous=asynchronous)
@@ -1265,7 +1255,6 @@ class URRobot:
         self,
         delta: list[float] | None = None,
         *,
-        linear: bool = True,
         frame: MoveFrame | None = None,
         vel: float | None = None,
         acc: float | None = None,
@@ -1276,20 +1265,15 @@ class URRobot:
         delta_rx: float = 0.0,
         delta_ry: float = 0.0,
         delta_rz: float = 0.0,
-        ik_reference: str | list[float] | None | Literal["__global__"] = "__global__",
     ) -> None:
         """Relative Cartesian move from the current position.
 
         Reads the current TCP pose, applies the delta in the given
-        coordinate frame, and moves to the resulting pose.
+        coordinate frame, and moves linearly (moveL) to the resulting pose.
 
         Args:
             delta: [dx, dy, dz, drx, dry, drz] in meters/radians.
                 Mutually exclusive with individual delta_* parameters.
-            linear: If True (default), use Cartesian linear move.
-                If False, solve IK and use joint-space move. When an IK
-                reference is active, the pose is resolved to joints
-                and a joint-space move is used regardless of this flag.
             frame: Coordinate frame for the delta. Falls back to the
                 current ``move_frame`` property (BASE or TOOL).
             vel: Velocity override. Falls back to default_vel.
@@ -1302,18 +1286,9 @@ class URRobot:
             delta_rx: Roll delta in radians (default 0.0).
             delta_ry: Pitch delta in radians (default 0.0).
             delta_rz: Yaw delta in radians (default 0.0).
-            ik_reference: Per-call IK reference override. One of:
-
-                - ``"__global__"`` (default): Use the robot's global
-                  ``ik_reference`` setting.
-                - ``None``: Explicitly disable IK reference for this
-                  move (use controller's default behavior).
-                - ``"current"``: Use current joint positions.
-                - A point name (str): Look up and resolve to joints.
-                - A 6-element list: Use directly as joint angles.
 
         Raises:
-            MotionError: If the move fails.
+            MotionError: If the move fails or pose is unreachable.
 
         Example:
             >>> robot.move_relative(delta_y=0.01)  # 1cm along Y
@@ -1353,33 +1328,15 @@ class URRobot:
         acc = acc if acc is not None else self._default_acc
         effective_frame = frame or self._move_frame
 
-        # Resolve effective ik_reference: per-call > global
-        effective_ik = (
-            self._ik_reference if ik_reference == "__global__" else ik_reference
-        )
-
         try:
             current = list(self._rtde_r.getActualTCPPose())
             target = transform_pose_delta(current, final_delta, effective_frame)
 
-            if effective_ik is not None:
-                # IK reference active: resolve pose to joints with qnear
-                qnear = self._resolve_ik_reference(effective_ik)
-                joints = self.inverse_kinematics(target, seed=qnear)
-                self._move_target_joints = list(joints)
-                self._move_target_pose = list(target)
-                self._motion.movej(joints, vel=vel, acc=acc, asynchronous=asynchronous)
-            elif linear:
-                # No IK reference, linear mode: standard moveL
-                self._move_target_pose = list(target)
-                self._move_target_joints = None
-                self._motion.movel(target, vel=vel, acc=acc, asynchronous=asynchronous)
-            else:
-                # No IK reference, joint mode: resolve IK without qnear
-                joints = self.inverse_kinematics(target)
-                self._move_target_joints = list(joints)
-                self._move_target_pose = list(target)
-                self._motion.movej(joints, vel=vel, acc=acc, asynchronous=asynchronous)
+            if not self._rtde_c.getInverseKinematicsHasSolution(target):
+                raise MotionError(f"Pose unreachable: {target}")
+            self._move_target_pose = list(target)
+            self._move_target_joints = None
+            self._motion.movel(target, vel=vel, acc=acc, asynchronous=asynchronous)
         except MotionError:
             raise
         except Exception as e:
@@ -1420,14 +1377,9 @@ class URRobot:
 
             point = self._points.get(ik_reference)
             if point is None:
-                logger.warning(
-                    "ik_reference='%s': point not found, "
-                    "falling back to current joint positions. "
-                    "Available: %s",
-                    ik_reference,
-                    self._points.list(),
+                raise PointError(
+                    f"ik_reference='{ik_reference}': point not found"
                 )
-                return list(self._rtde_r.getActualQ())
 
             # Resolve the point's pose to joints (no qnear — just need
             # a representative joint config for this posture)
@@ -1440,89 +1392,97 @@ class URRobot:
 
     def move_sequence(
         self,
-        targets: list[str | list[float]],
-        *,
+        *targets: str | list[float],
         linear: bool = True,
         blend_radius: float = 0.0,
         vel: float | None = None,
         acc: float | None = None,
-        asynchronous: bool = False,
         ik_reference: str | list[float] | None | Literal["__global__"] = "__global__",
     ) -> None:
-        """Move through a sequence of points.
+        """Move through a sequence of points as a blended path.
 
-        Executes each target in order. When ``ik_reference`` is provided,
-        all poses are resolved to joint targets using chained inverse
-        kinematics (each pose resolves relative to the previous one),
-        then executed as a single blended joint-space path via
+        Builds a path from all targets and executes it in a single
+        call — either ``moveJ(path)`` with IK-resolved joints or
+        ``moveL(path)`` with Cartesian poses. The robot rounds corners
+        at intermediate waypoints when ``blend_radius`` is set.
+
+        With ``linear=True``, uses ``moveL(path)`` for smooth Cartesian
+        path blending — the controller handles IK natively.
+
+        With ``linear=False`` and ``ik_reference``, all poses are
+        resolved to joint targets using chained inverse kinematics
+        (each pose resolves relative to the previous one), then
+        executed as a single blended joint-space path via
         ``moveJ(path)``. This prevents the robot from unexpectedly
         flipping its elbow or wrist between waypoints.
 
-        Without ``ik_reference``, falls back to individual ``moveL``/
-        ``moveJ_IK`` calls (legacy behavior, no blending).
+        With ``linear=False`` and no ``ik_reference``, each pose is
+        resolved to joints independently (no chaining). The robot
+        may flip joints between waypoints — use with caution.
 
         Args:
-            targets: List of saved point names or raw poses
-                [x, y, z, rx, ry, rz].
-            linear: Used only when ``ik_reference`` is ``None``.
-                If True (default), use Cartesian linear moves (moveL).
-                If False, use joint-space moves (moveJ_IK).
-                Ignored when ``ik_reference`` is set (always uses
-                joint-space path for IK stability).
-            blend_radius: Blend radius in meters. Used only when
-                ``ik_reference`` is set — applied between consecutive
-                waypoints in the joint path. Default 0.0 (stop at each
+            *targets: Saved point names or raw poses
+                [x, y, z, rx, ry, rz], passed as individual arguments
+                or as a single list. Both styles are accepted:
+
+                - ``robot.move_sequence("a", "b", "c")``
+                - ``robot.move_sequence(["a", "b", "c"])``
+            linear: If True (default), use Cartesian linear path
+                (``moveL(path)``). If False, use joint-space path
+                (``moveJ(path)``). When ``linear=True``, ``ik_reference``
+                is ignored (moveL doesn't accept a custom IK seed).
+            blend_radius: Blend radius in meters. Applied between
+                consecutive waypoints. Default 0.0 (stop at each
                 waypoint). When set, the robot rounds corners instead
                 of stopping at intermediate waypoints.
             vel: Velocity override. Falls back to default_vel.
             acc: Acceleration override. Falls back to default_acc.
-            asynchronous: If True, move runs in background. Used only
-                when ``ik_reference`` is set (path-based moves support
-                async). Ignored in legacy mode.
             ik_reference: Reference posture for inverse kinematics
-                resolution. One of:
+                resolution. Only applies when ``linear=False``. One of:
 
                 - ``"__global__"`` (default): Use the robot's global
-                  ``ik_reference`` setting. If the global setting is
-                  ``None``, falls back to legacy behavior.
-                - ``None``: Explicitly disable IK reference for this
-                  sequence (use controller's default behavior).
+                  ``ik_reference`` setting.
+                - ``None``: Explicitly disable IK reference (resolve
+                  each pose independently — joints may flip).
                 - ``"current"``: Use the robot's current joint
                   positions as the starting reference.
                 - A point name (str): Look up the saved point,
                   resolve its pose to joints, and use as the
-                  starting reference. If the point doesn't exist,
-                  falls back to current joint positions with a
-                  warning.
+                  starting reference.
                 - A 6-element list: Use directly as joint angles.
 
                 The reference is **chained** through the sequence:
                 the first pose resolves relative to the reference,
                 the second relative to the first's resolved joints,
-                and so on. This keeps the arm configuration
-                (elbow up/down, wrist orientation) consistent
-                throughout the entire sequence.
+                and so on.
 
         Raises:
             MotionError: If the sequence fails, fewer than 2 targets,
-                or IK resolution fails for a pose.
+                or a pose is unreachable (no IK solution).
             PointError: If a named target point is not found.
 
         Example:
-            >>> # Legacy: individual moveL calls, no IK control
-            >>> robot.move_sequence(["a", "b", "c"])
+            >>> # Smooth linear path with blending
+            >>> robot.move_sequence("a", "b", "c", blend_radius=0.02)
 
-            >>> # IK-stable: resolve to joints, blend between waypoints
-            >>> robot.move_sequence(["a", "b", "c"],
+            >>> # IK-stable joint path
+            >>> robot.move_sequence("a", "b", "c",
+            ...                      linear=False,
             ...                      ik_reference="home",
             ...                      blend_radius=0.02)
 
-            >>> # Start from current posture
-            >>> robot.move_sequence(["a", "b", "c"],
-            ...                      ik_reference="current")
+            >>> # Joint path without IK chaining (may flip joints)
+            >>> robot.move_sequence("a", "b", "c", linear=False)
+
+            >>> # List style also works
+            >>> robot.move_sequence(["a", "b", "c"], blend_radius=0.02)
         """
         self._check_connection()
         self._disable_freedrive_guard()
+
+        # Support both move_sequence("a", "b", "c") and move_sequence(["a", "b", "c"])
+        if len(targets) == 1 and isinstance(targets[0], list):
+            targets = tuple(targets[0])  # type: ignore[arg-type]
 
         if len(targets) < 2:
             raise MotionError(
@@ -1537,62 +1497,60 @@ class URRobot:
             self._ik_reference if ik_reference == "__global__" else ik_reference
         )
 
-        if effective_ik is not None:
-            # --- IK-stable path mode: resolve all poses to joints,
-            #     build blended joint path, single moveJ(path) call. ---
-            qnear = self._resolve_ik_reference(effective_ik)
-            logger.info("move_sequence: ik_reference resolved to %s", qnear)
+        # Explicit ik_reference + linear=True is a contradiction
+        if ik_reference != "__global__" and ik_reference is not None and linear:
+            raise MotionError(
+                "Cannot use ik_reference with linear=True. "
+                "ik_reference applies to joint moves only (linear=False). "
+                "Either set linear=False or remove ik_reference."
+            )
+
+        if linear:
+            # --- Linear path mode: moveL(path), controller handles IK. ---
+            cartesian_path: list[list[float]] = []
+            for i, target in enumerate(targets):
+                point = self._lookup_point(target)
+                label = (
+                    f"'{target}'" if isinstance(target, str)
+                    else str(target[:3])
+                )
+                pose = list(point.pose)
+                if not self._rtde_c.getInverseKinematicsHasSolution(pose):
+                    raise MotionError(
+                        f"Pose unreachable at target {i} ({label}): {pose}"
+                    )
+                # 9-element path: [x, y, z, rx, ry, rz, vel, acc, blend]
+                r = blend_radius if i < len(targets) - 1 else 0.0
+                cartesian_path.append([*pose, v, a, r])
+
+            try:
+                self._rtde_c.moveL(cartesian_path)
+            except Exception as e:
+                raise MotionError(f"move_sequence path execution failed: {e}")
+        else:
+            # --- Joint path mode: resolve poses to joints, moveJ(path). ---
+            qnear = (
+                self._resolve_ik_reference(effective_ik)
+                if effective_ik is not None
+                else None
+            )
 
             path: list[list[float]] = []
             for i, target in enumerate(targets):
                 point = self._lookup_point(target)
-                label = (
-                    f"'{target}'" if isinstance(target, str)
-                    else str(target[:3])
-                )
-
-                # Chain qnear: each pose resolves relative to previous
+                # Resolve IK (with chained qnear if ik_reference set)
                 joints = self.inverse_kinematics(point.pose, seed=qnear)
-                logger.info(
-                    "move_sequence: %s (%d/%d) → joints %s",
-                    label, i + 1, len(targets),
-                    [f"{j:.3f}" for j in joints],
-                )
-
                 # 9-element path: [j0..j5, velocity, acceleration, blend]
                 # Last waypoint gets blend=0 (come to rest)
                 r = blend_radius if i < len(targets) - 1 else 0.0
                 path.append([*joints, v, a, r])
-                qnear = joints  # chain to next
+                if qnear is not None:
+                    qnear = joints  # chain to next
 
-            logger.info(
-                "move_sequence: executing blended joint path (%d waypoints, "
-                "blend=%.3f m)", len(path), blend_radius
-            )
             try:
-                self._rtde_c.moveJ(path, asynchronous=asynchronous)
+                self._rtde_c.moveJ(path)
             except Exception as e:
                 raise MotionError(f"move_sequence path execution failed: {e}")
-        else:
-            # --- Legacy mode: individual moveL/moveJ_IK calls. ---
-            for i, target in enumerate(targets):
-                point = self._lookup_point(target)
-                label = (
-                    f"'{target}'" if isinstance(target, str)
-                    else str(target[:3])
-                )
-                logger.info(
-                    "move_sequence: %s (%d/%d)", label, i + 1, len(targets)
-                )
-                try:
-                    if linear:
-                        self._rtde_c.moveL(list(point.pose), v, a)
-                    else:
-                        self._rtde_c.moveJ_IK(list(point.pose), v, a)
-                except Exception as e:
-                    raise MotionError(
-                        f"move_sequence failed at target {i}: {e}"
-                    )
 
     def zero_ft_sensor(self) -> None:
         """Zero the robot's force/torque sensor.
@@ -1612,7 +1570,7 @@ class URRobot:
         speed_vector: list[float] | None = None,
         *,
         threshold: float = 5.0,
-        acceleration: float = 0.1,
+        acc: float = 0.1,
         zero_first: bool = True,
         timeout: float | None = None,
         max_distance: float | None = None,
@@ -1635,7 +1593,7 @@ class URRobot:
             threshold: Force/torque delta (N or Nm) that triggers contact.
                 Contact fires when any wrench component changes by more
                 than this value from the baseline reading.
-            acceleration: Acceleration limit passed to ``speedL()`` in m/s².
+            acc: Acceleration limit passed to ``speedL()`` in m/s².
             zero_first: If True (default), zero the FT sensor before reading
                 the baseline. Set to False if you need absolute force values.
             timeout: Maximum time in seconds before aborting. Set to ``None``
@@ -1670,7 +1628,7 @@ class URRobot:
         return self._motion.move_until_contact(
             final_vector,
             threshold=threshold,
-            acceleration=acceleration,
+            acc=acc,
             zero_first=zero_first,
             timeout=timeout,
             max_distance=max_distance,
@@ -1680,14 +1638,14 @@ class URRobot:
         self,
         speed_vector: list[float],
         duration: float,
-        acceleration: float = 0.1,
+        acc: float = 0.1,
     ) -> None:
         """Move at a constant Cartesian velocity for a given duration.
 
         Args:
             speed_vector: ``[vx, vy, vz, vRoll, vPitch, dYaw]`` in m/s.
             duration: How long to move in seconds.
-            acceleration: Acceleration limit in m/s².
+            acc: Acceleration limit in m/s².
 
         Example:
             >>> # Move down at 20 mm/s for 1 second
@@ -1695,7 +1653,7 @@ class URRobot:
         """
         self._check_connection()
         self._disable_freedrive_guard()
-        self._motion.move_velocity(speed_vector, duration, acceleration=acceleration)
+        self._motion.move_velocity(speed_vector, duration, acc=acc)
 
     def speed_stop(self) -> None:
         """Stop any ongoing speed motion (delta move)."""
@@ -1719,13 +1677,14 @@ class URRobot:
         """Return whether freedrive is currently active."""
         return self._motion.is_freedrive_active
 
-    def set_speed_slider(self, factor: float) -> None:
-        """Set the speed slider factor (0.0–1.0)."""
-        self._motion.set_speed_slider(factor)
-
-    def get_speed_slider(self) -> float:
-        """Get the current speed slider setting (0.0–1.0)."""
+    @property
+    def speed_slider(self) -> float:
+        """Current speed slider setting (0.0–1.0)."""
         return self._telemetry.get_speed_slider()
+
+    @speed_slider.setter
+    def speed_slider(self, factor: float) -> None:
+        self._motion.set_speed_slider(factor)
 
     # ------------------------------------------------------------------
     # Velocity / acceleration defaults
@@ -1733,13 +1692,51 @@ class URRobot:
 
     @property
     def default_vel(self) -> float:
-        """Current default velocity (m/s) for motion commands."""
+        """Current default velocity (m/s) for motion commands.
+
+        Example:
+            >>> robot.default_vel = 0.1  # slow for precision
+            >>> robot.default_vel = 0.5  # back to normal
+        """
         return self._default_vel
+
+    @default_vel.setter
+    def default_vel(self, vel: float) -> None:
+        if vel <= 0:
+            raise MotionError(f"vel must be > 0, got {vel}.")
+        if vel > 2.0:
+            logger.warning(
+                "default_vel(%s): %.1f m/s exceeds typical TCP speed limits "
+                "(UR3e/5e/10e: ~1–2 m/s). The controller may clamp this value.",
+                vel,
+                vel,
+            )
+        self._default_vel = vel
+        self._motion._default_vel = vel
 
     @property
     def default_acc(self) -> float:
-        """Current default acceleration (m/s²) for motion commands."""
+        """Current default acceleration (m/s²) for motion commands.
+
+        Example:
+            >>> robot.default_acc = 0.05  # gentle acceleration
+            >>> robot.move_to("insert")
+        """
         return self._default_acc
+
+    @default_acc.setter
+    def default_acc(self, acc: float) -> None:
+        if acc <= 0:
+            raise MotionError(f"acc must be > 0, got {acc}.")
+        if acc > 6.0:
+            logger.warning(
+                "default_acc(%s): %.1f m/s² is high. The controller may clamp "
+                "this value based on payload and configuration.",
+                acc,
+                acc,
+            )
+        self._default_acc = acc
+        self._motion._default_acc = acc
 
     @property
     def ik_reference(self) -> str | list[float] | None:
@@ -1768,65 +1765,6 @@ class URRobot:
             value: Reference posture (see getter docstring).
         """
         self._ik_reference = value
-
-    def set_speed(self, vel: float) -> None:
-        """Change the default velocity for subsequent motions.
-
-        Updates both the URRobot-level default and the internal
-        Motion instance so that ``move_to``, ``move_relative``, etc.
-        pick up the new value when no per-call override is given.
-
-        Args:
-            vel: Linear velocity in m/s (must be > 0).
-
-        Raises:
-            MotionError: If vel is <= 0.
-
-        Example:
-            >>> robot.set_speed(0.1)  # slow for precision
-            >>> robot.move_to("insert")
-            >>> robot.set_speed(0.5)  # back to normal
-        """
-        if vel <= 0:
-            raise MotionError(f"vel must be > 0, got {vel}.")
-        if vel > 2.0:
-            logger.warning(
-                "set_speed(%s): %.1f m/s exceeds typical TCP speed limits "
-                "(UR3e/5e/10e: ~1–2 m/s). The controller may clamp this value.",
-                vel,
-                vel,
-            )
-        self._default_vel = vel
-        self._motion._default_vel = vel
-
-    def set_acc(self, acc: float) -> None:
-        """Change the default acceleration for subsequent motions.
-
-        Updates both the URRobot-level default and the internal
-        Motion instance so that ``move_to``, ``move_relative``, etc.
-        pick up the new value when no per-call override is given.
-
-        Args:
-            acc: Linear acceleration in m/s² (must be > 0).
-
-        Raises:
-            MotionError: If acc is <= 0.
-
-        Example:
-            >>> robot.set_acc(0.05)  # gentle acceleration
-            >>> robot.move_to("insert")
-        """
-        if acc <= 0:
-            raise MotionError(f"acc must be > 0, got {acc}.")
-        if acc > 6.0:
-            logger.warning(
-                "set_acc(%s): %.1f m/s² is high. The controller may clamp "
-                "this value based on payload and configuration.",
-                acc,
-                acc,
-            )
-        self._default_acc = acc
-        self._motion._default_acc = acc
 
     # ------------------------------------------------------------------
     # Kinematics
@@ -1869,32 +1807,53 @@ class URRobot:
     # Telemetry
     # ------------------------------------------------------------------
 
-    def current_point(self) -> dict[str, list[float]]:
-        """Get the robot's current pose and joints.
+    def get_current_point(
+        self,
+        *,
+        offset: list[float] | None = None,
+        frame: MoveFrame | None = None,
+        offset_x: float = 0.0,
+        offset_y: float = 0.0,
+        offset_z: float = 0.0,
+        offset_rx: float = 0.0,
+        offset_ry: float = 0.0,
+        offset_rz: float = 0.0,
+    ) -> list[float]:
+        """Get the robot's current TCP pose, optionally with offset.
 
-        Convenience method combining ``get_tcp_pose()`` and
-        ``get_joint_positions()`` into a single call.
-
-        Returns:
-            Dict with ``pose`` [x, y, z, rx, ry, rz] and
-            ``joints`` [j0..j5].
-
-        Example:
-            >>> pos = robot.current_point()
-            >>> print(pos["pose"])
-        """
-        return {
-            "pose": self._telemetry.get_tcp_pose(),
-            "joints": self._telemetry.get_joint_positions(),
-        }
-
-    def get_tcp_pose(self) -> list[float]:
-        """Get the current TCP pose.
+        Args:
+            offset: Optional offset [dx, dy, dz, drx, dry, drz]
+                applied to the current pose. Mutually exclusive with
+                individual offset_* parameters.
+            frame: Coordinate frame for the offset. Falls back to the
+                current ``move_frame`` property (BASE or TOOL).
+            offset_x: X offset in meters (default 0.0).
+            offset_y: Y offset in meters (default 0.0).
+            offset_z: Z offset in meters (default 0.0).
+            offset_rx: Roll offset in radians (default 0.0).
+            offset_ry: Pitch offset in radians (default 0.0).
+            offset_rz: Yaw offset in radians (default 0.0).
 
         Returns:
             [x, y, z, rx, ry, rz] in meters/radians.
+
+        Example:
+            >>> pose = robot.get_current_point()
+            >>> pose = robot.get_current_point(offset_z=0.05)
+            >>> robot.move_to(pose)
         """
-        return self._telemetry.get_tcp_pose()
+        current = self._telemetry.get_tcp_pose()
+        if offset is not None:
+            if len(offset) != 6:
+                raise PointError(
+                    f"Offset must have 6 values, got {len(offset)}."
+                )
+            return transform_pose_delta(current, offset, frame=frame or self._move_frame)
+
+        individual_offset = [offset_x, offset_y, offset_z, offset_rx, offset_ry, offset_rz]
+        if any(v != 0.0 for v in individual_offset):
+            return transform_pose_delta(current, individual_offset, frame=frame or self._move_frame)
+        return current
 
     def get_joint_positions(self) -> list[float]:
         """Get the current joint positions.
@@ -1915,25 +1874,6 @@ class URRobot:
     def get_robot_mode(self) -> str:
         """Get the current robot mode string."""
         return self._telemetry.get_robot_mode()
-
-    def get_payload(self) -> float:
-        """Get the currently configured payload mass (kg)."""
-        return self._payload
-
-    def get_polyscope_version(self) -> str | None:
-        """Get the PolyScope version string via Dashboard (e.g. '5.25.0').
-
-        Returns:
-            Version string, or None if Dashboard is unavailable.
-        """
-        try:
-            if self._dashboard is None:
-                self._connect_dashboard()
-            if self._dashboard is None:
-                return None
-            return _dashboard_command(self._dashboard, "version")  # type: ignore
-        except Exception:
-            return None
 
     def is_protective_stopped(self) -> bool:
         """Check if the robot is in protective stop."""

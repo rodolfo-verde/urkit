@@ -60,9 +60,9 @@ class FreedriveMode(IntEnum):
     Controls which axes the robot allows manual movement on.
     """
 
-    ALL = 0  # All 6 axes free
-    XYZ = 1  # Linear axes (X, Y, Z) + rotation around Z (Rz)
-    ROTATION = 2  # Only rotational axes (Roll, Pitch, Yaw)
+    ALL = 0      # All 6 axes free
+    XYZ = 1      # Linear axes only (X, Y, Z)
+    ROTATION = 2  # Rotational axes only (Roll, Pitch, Yaw)
 
 
 class Motion:
@@ -547,26 +547,46 @@ class Motion:
                 f"Failed to set speed slider to {factor}: {e}"
             )
 
-    def enable_freedrive(self, mode: FreedriveMode = FreedriveMode.ALL) -> None:
+    def enable_freedrive(
+        self,
+        mode: FreedriveMode | list[int] = FreedriveMode.ALL,
+    ) -> None:
         """Enable freedrive mode for manual robot manipulation.
 
         Args:
-            mode: Which axes to allow manual movement on.
+            mode: Either a FreedriveMode preset or a 6-element list of
+                0/1 values [X, Y, Z, Roll, Pitch, Yaw].
 
         Raises:
             MotionError: If freedrive cannot be enabled.
         """
         try:
-            if mode == FreedriveMode.ALL:
+            if isinstance(mode, list):
+                if len(mode) != 6 or not all(v in (0, 1) for v in mode):
+                    raise MotionError(
+                        f"Custom freedrive axes must be 6 values of 0/1, got {mode}."
+                    )
+                free_axes = list(mode)
+                mode_label = "+".join(
+                    ["X", "Y", "Z", "R", "P", "Y"][i]
+                    for i, v in enumerate(mode)
+                    if v
+                )
+            elif mode == FreedriveMode.ALL:
                 free_axes = [1, 1, 1, 1, 1, 1]
+                mode_label = mode.name
             elif mode == FreedriveMode.XYZ:
-                free_axes = [1, 1, 1, 0, 0, 1]
+                free_axes = [1, 1, 1, 0, 0, 0]
+                mode_label = mode.name
             elif mode == FreedriveMode.ROTATION:
                 free_axes = [0, 0, 0, 1, 1, 1]
+                mode_label = mode.name
             else:
                 raise MotionError(f"Unknown freedrive mode: {mode}")
 
-            center = list(self._rtde_r.getActualTCPPose())
+            # Use base frame [0,0,0,0,0,0] so freedrive axes are always
+            # relative to base, not tool orientation.
+            center = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
             # Capture stderr from ur_rtde C++ library to surface robot errors
             stderr_buf = io.StringIO()
             old_stderr = sys.stderr
@@ -580,10 +600,10 @@ class Motion:
             if not success:
                 detail = stderr_text if stderr_text else "no detail from robot"
                 raise MotionError(
-                    f"freedriveMode returned false (mode={mode.name}): {detail}"
+                    f"freedriveMode returned false (mode={mode_label}): {detail}"
                 )
             self._freedrive_active = True
-            logger.info("Freedrive mode enabled (%s)", mode.name)
+            logger.info("Freedrive mode enabled (%s)", mode_label)
         except MotionError:
             raise
         except Exception as e:

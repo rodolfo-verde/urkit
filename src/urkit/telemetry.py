@@ -109,22 +109,6 @@ class Telemetry:
         except Exception:
             return False
 
-    def get_payload(self) -> float:
-        """Get the currently configured payload mass.
-
-        Returns:
-            Payload mass in kg.
-
-        Raises:
-            TelemetryError: If the payload cannot be read.
-        """
-        try:
-            return float(self._rtde_r.getPayload())
-        except Exception as e:
-            raise TelemetryError(
-                f"Failed to read payload: {e}"
-            )
-
     def get_speed_slider(self) -> float:
         """Get the current speed slider setting.
 

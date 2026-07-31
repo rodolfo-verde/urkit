@@ -107,7 +107,7 @@ class TestURRobotPresetIntegration:
         except Exception as e:
             pytest.skip(f"Failed to connect: {e}")
         try:
-            actual = r.get_payload()
+            actual = r.payload
             assert actual == pytest.approx(payload, rel=0.01)
         finally:
             r.disconnect()

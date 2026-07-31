@@ -27,9 +27,7 @@ config.yaml
 *.db
 
 # AI assistant configs
-CLAUDE.md
-QWEN.md
 AGENTS.md
 .claude/
 .qwen/
-_demo/
+_tmp/
