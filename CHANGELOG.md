@@ -5,6 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+- `urkit init` command to scaffold a default `config.yaml` with all options documented. Supports `--output` for custom path and `--force` to overwrite existing files
+
+### Docs
+- Added OS-specific PC network setup instructions (Linux, macOS, Windows) with GUI steps
+- Added recommended workflow: `urkit init` → edit config → `urkit teach` → Python code
+
 ## [0.4.0] 2026-07-31
 
 ### Breaking
