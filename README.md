@@ -30,12 +30,14 @@ The typical workflow: teach points with the pendant, write a few lines of Python
 
 - [Quick Start](#quick-start)
 - [Configuration](#configuration)
+  - [Create a Config File](#create-a-config-file)
   - [Location](#location)
   - [Keys](#keys)
   - [Gripper Config](#gripper-config)
   - [Saving Config](#saving-config)
   - [Programmatic](#programmatic)
 - [Interactive CLI](#interactive-cli)
+  - [Init](#init)
   - [Teach Mode](#teach-mode)
   - [Points Explorer](#points-explorer)
   - [Key Map](#key-map)
@@ -119,9 +121,20 @@ robot.gripper.open()
 
 The typical workflow:
 
-1. **Teach points.** Use the CLI to position the robot and save named waypoints.
-2. **Write code.** Create a robot, move to points by name, apply offsets, run sequences.
-3. **Iterate.** Add more points, tweak your code, repeat.
+1. **Scaffold config.** Run `urkit init` to create a default `config.yaml`.
+2. **Edit it.** Set your robot IP, gripper type, and other settings.
+3. **Teach points.** Run `urkit teach` (auto-loads config) to position the robot and save waypoints.
+4. **Write code.** Load the config and move to points by name:
+
+```python
+from urkit import URRobot
+
+robot = URRobot.from_config("config.yaml")
+robot.move_to("home")
+robot.move_to("pick", offset_z=0.05)
+```
+
+5. **Iterate.** Add more points, tweak your code, repeat.
 
 ---
 
@@ -129,9 +142,21 @@ The typical workflow:
 
 URKit uses a YAML config file (`config.yaml`) to persist settings between sessions.
 
+### Create a Config File
+
+Generate a default config with all options documented:
+
+```bash
+urkit init                          # writes config.yaml in CWD
+urkit init --output station_a.yaml  # custom path
+urkit init --force                  # overwrite if exists
+```
+
+Edit the generated file with your robot IP and gripper settings.
+
 ### Location
 
-URKit searches for `config.yaml` in the current working directory, or an explicit path via `--config`.
+The CLI auto-loads `config.yaml` from the current working directory. Pass `--config` for a custom path.
 
 ### Keys
 
@@ -221,7 +246,19 @@ robot = URRobot.from_config({"robot_ip": "192.168.1.50", "gripper": "2f-85"})  #
 
 ## Interactive CLI
 
-URKit provides two CLI tools: **teach** for interactive robot control, and **points** for browsing saved waypoints.
+URKit provides three CLI tools: **init** to scaffold a config file, **teach** for interactive robot control, and **points** for browsing saved waypoints.
+
+### Init
+
+Generate a default config file with all options documented:
+
+```bash
+urkit init                          # writes config.yaml in CWD
+urkit init --output station_a.yaml  # custom path
+urkit init --force                  # overwrite if exists
+```
+
+### Teach Mode
 
 ### Teach Mode
 

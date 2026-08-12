@@ -12,6 +12,7 @@ from __future__ import annotations
 import argparse
 import sys
 
+from urkit.cli.init import init_command
 from urkit.cli.teach import teach_command
 from urkit.cli.points import points_command
 
@@ -24,6 +25,24 @@ def main() -> None:
     )
 
     subparsers = parser.add_subparsers(dest="command", help="Available commands")
+
+    # init subcommand
+    init_parser = subparsers.add_parser(
+        "init",
+        help="Scaffold a default config.yaml",
+    )
+    init_parser.add_argument(
+        "--output",
+        type=str,
+        default="config.yaml",
+        help="Output path (default: config.yaml in CWD)",
+    )
+    init_parser.add_argument(
+        "--force",
+        action="store_true",
+        default=False,
+        help="Overwrite existing file",
+    )
 
     # teach subcommand
     teach_parser = subparsers.add_parser(
@@ -113,7 +132,9 @@ def main() -> None:
         parser.print_help()
         sys.exit(1)
 
-    if args.command == "teach":
+    if args.command == "init":
+        init_command(args)
+    elif args.command == "teach":
         teach_command(args)
     elif args.command == "points":
         points_command(args)
