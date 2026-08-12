@@ -68,10 +68,33 @@ Requires Python 3.8+ and a Universal Robots e-Series (UR3e to UR30).
 
 ### Robot Setup (one-time)
 
-1. **Network**: `☰` → `System` → `System` → `Network`. Set a static IP on the robot and a matching one on your PC. Both addresses must share the same first three octets (the network), with a different last octet (the host). For example:
-   - **Robot**: `192.168.1.50` / Subnet `255.255.255.0`
-   - **PC**: `192.168.1.1` / Netmask `255.255.255.0`
-   - Verify with `ping 192.168.1.50`. Connect via direct Ethernet cable or a switch.
+1. **Network**: Connect your PC to the robot via Ethernet cable (direct) or a switch.
+
+   First, configure the robot: `☰` → `System` → `System` → `Network`. Set a static IP, e.g., `192.168.1.50` / Subnet `255.255.255.0`.
+
+   Then set a matching static IP on your PC. The exact IP can be anything, as long as the first three octets match the robot's network and the last octet is different:
+
+   **Linux**:
+   - Open `Settings` → `Network` → click the gear icon next to `Wired`
+   - Go to `IPv4` tab → change `Automatic (DHCP)` to `Manual`
+   - Enter Address: `192.168.1.1`, Netmask: `255.255.255.0`
+   - Click `Apply`, then toggle the connection off and on
+
+   **macOS**:
+   - Open `System Settings` → `Network` → click `Ethernet` (or your adapter)
+   - Click `Details...` next to the adapter name → `TCP/IP`
+   - Set `Configure IPv4` to `Manually`
+   - Enter IP: `192.168.1.1`, Subnet Mask: `255.255.255.0`
+   - Click `OK`
+
+   **Windows**:
+   - Open `Settings` → `Network & internet` → `Ethernet`
+   - Click the adapter name (e.g., `Ethernet`) at the top
+   - Under `IP settings`, click `Edit` → select `Manual`
+   - Toggle `IPv4` On, enter IP: `192.168.1.1`, Subnet mask: `255.255.255.0`
+   - Click `Save`
+
+   Verify connectivity: `ping 192.168.1.50`.
 2. **Remote Control**: `☰` → `System` → `Remote Control`: Enable. Press the remote/local button on the pendant.
 3. **Security**: `☰` → `Security` → `Services`: enable RTDE and disable EtherNet/IP, PROFINET, or MODBUS if they're claiming RTDE registers. Save and restart.
 
