@@ -14,11 +14,14 @@ from urkit.geometry import MoveFrame, transform_pose_delta
 
 @dataclass(frozen=True, slots=True)
 class Point:
-    """A robot waypoint stored as a TCP pose.
+    """A robot waypoint stored as a TCP pose in the base frame.
 
-    Stores the TCP pose (from ``getActualTCPPose()``). The UR controller
-    interprets the stored pose in whatever TCP frame is active at playback
-    time, making points tool-agnostic by design.
+    Stores the TCP pose from ``getActualTCPPose()`` as an absolute
+    position in the robot base frame. When passed to ``moveL()`` or
+    ``moveJ()``, the controller moves whatever TCP is currently active
+    to that base-frame position. This means saved points remain valid
+    after TCP changes: the tool tip arrives at the same physical
+    location regardless of which tool is mounted.
 
     Returned by Points attribute/subscript access. Pass directly
     to URRobot.move_to(). Points loaded from the database carry a
@@ -26,7 +29,7 @@ class Point:
 
     Fields:
         name: Point name (key in the database, empty string for ad-hoc points).
-        pose: TCP pose [x, y, z, rx, ry, rz] in meters/radians.
+        pose: TCP pose [x, y, z, rx, ry, rz] in base frame, meters/radians.
     """
 
     name: str

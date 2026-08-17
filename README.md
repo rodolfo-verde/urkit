@@ -637,7 +637,7 @@ Default is `None` (controller handles IK natively). Set it globally when most of
 
 #### Point Management
 
-Points are stored in the active TCP frame, so they work with any tool. Swap grippers and your saved points stay valid.
+Points are stored as absolute TCP poses in the robot base frame. When you move to a point, the controller moves whatever TCP is currently active to that base-frame pose, so the tool tip lands at the same physical location. Change the TCP offset (or swap grippers) and your saved points stay valid.
 
 ```python
 robot.save_point("here")

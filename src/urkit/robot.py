@@ -1891,19 +1891,20 @@ class URRobot:
         """Save a named point.
 
         When *pose* is omitted, saves the current TCP pose from
-        getActualTCPPose(). When *pose* is provided, saves that
+        ``getActualTCPPose()``. When *pose* is provided, saves that
         arbitrary pose directly without moving the robot.
 
-        The UR controller interprets the stored pose in whatever TCP
-        frame is active at playback time, making points tool-agnostic
-        by design.
+        The pose is stored as an absolute position in the robot base
+        frame. At playback, ``moveL()`` moves whatever TCP is currently
+        active to that base-frame position, so saved points remain
+        valid after TCP changes.
 
         Overwrites if a point with the same name already exists.
 
         Args:
             name: Name for the saved point.
-            pose: TCP pose [x, y, z, rx, ry, rz]. Defaults to current
-                robot position.
+            pose: TCP pose [x, y, z, rx, ry, rz] in base frame.
+                Defaults to current robot position.
 
         Returns:
             The saved Point object.
