@@ -144,10 +144,17 @@ class ConnectionMonitor:
         logger.info("Connection monitor loop exited")
 
     def _trigger(self, reason: str) -> None:
-        """Record fault reason and send SIGALRM to interrupt blocking calls."""
+        """Record fault reason and send SIGALRM to interrupt blocking calls.
+
+        On Windows there is no self-signal: the fault_detected flag is
+        the only interruption path, and callers poll it between and
+        after RTDE calls.
+        """
         self._reason = reason
         self._fault_event.set()
         logger.info("Fault detected: %s", reason)
+        if not hasattr(signal, "SIGALRM"):
+            return
         try:
             os.kill(os.getpid(), signal.SIGALRM)
         except OSError as e:

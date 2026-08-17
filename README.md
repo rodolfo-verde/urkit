@@ -68,6 +68,11 @@ The `-U` (upgrade) flag ensures you always get the latest version. This project 
 
 Requires Python 3.8+ and a Universal Robots e-Series (UR3e to UR30).
 
+### Platform Support
+
+- **Linux, macOS**: fully supported
+- **Windows**: the Python library works on Windows. The interactive CLIs (`urkit teach`, `urkit points`) run on Windows but are **not fully tested and not officially supported**. A warning is printed at startup. If you hit input or console problems, use Linux, macOS, or WSL2
+
 ### Robot Setup (one-time)
 
 1. **Network**: Connect your PC to the robot via Ethernet cable (direct) or a switch.

@@ -9,9 +9,7 @@ from __future__ import annotations
 
 import difflib
 import io
-import select
 import sys
-import termios
 import time
 from pathlib import Path
 
@@ -20,6 +18,7 @@ from rich.table import Table
 
 from urkit.config import _load_config as load_config
 from urkit.cli.colors import blue, cyan, dim, yellow
+from urkit.cli.terminal import RawTerminal, read_burst, wait_input, warn_if_windows
 from urkit.points import Points
 
 
@@ -29,6 +28,7 @@ def points_command(args) -> None:
     Args:
         args: Parsed arguments from argparse (with points subcommand attributes).
     """
+    warn_if_windows()
     _explore_points(args)
 
 
@@ -120,12 +120,8 @@ def _interactive_points_filter(points_db: Points, all_points: list[str], points_
     refresh_error = None
 
     # Set terminal to raw mode
-    old_settings = termios.tcgetattr(sys.stdin)
-    new_settings = termios.tcgetattr(sys.stdin)
-    new_settings[3] = new_settings[3] & ~(termios.ICANON | termios.ECHO)
-    termios.tcsetattr(sys.stdin, termios.TCSADRAIN, new_settings)
-
-    fd = sys.stdin.fileno()
+    raw = RawTerminal()
+    raw.enable()
 
     try:
         while True:
@@ -238,44 +234,41 @@ def _interactive_points_filter(points_db: Points, all_points: list[str], points_
                 last_refresh = time.time()
 
             # Check for input (non-blocking to allow periodic refresh)
-            rlist, _, _ = select.select([fd], [], [], 0.1)
-            if not rlist:
+            if not wait_input(0.1):
                 continue
 
-            # Read input
+            # Read the full input burst. On Unix an arrow key arrives as
+            # \x1b[A in the same burst; on Windows the terminal shim
+            # translates arrow keys to the same byte sequence.
             try:
-                ch = sys.stdin.read(1)
+                text = read_burst(0.0).decode("ascii", errors="replace")
             except Exception:
                 break
+            if not text:
+                continue
 
-            if ch == "\x1b":  # ESC or arrow key or function key
-                # Use longer timeout to reliably detect sequences
-                rlist, _, _ = select.select([fd], [], [], 0.2)
-                if rlist:
-                    # There's more input, likely an arrow or function key sequence
-                    try:
-                        ch2 = sys.stdin.read(1)
-                        if ch2 == "[":
-                            ch3 = sys.stdin.read(1)
-                            if ch3 == "A":  # Up arrow - scroll up
-                                scroll = max(0, scroll - 1)
-                                needs_redraw = True
-                            elif ch3 == "B":  # Down arrow - scroll down
-                                filtered = [p for p in all_points_sorted if filter_str == "" or filter_str.lower() in p.lower()]
-                                scroll = min(len(filtered) - 1, scroll + 1) if filtered else 0
-                                needs_redraw = True
-                    except Exception:
-                        break
+            if text.startswith("\x1b"):  # ESC or arrow key or function key
+                # A bare ESC may still be the first byte of a sequence
+                # that arrives late; wait a bit before treating it as quit.
+                if text == "\x1b":
+                    text = text + read_burst(0.2).decode("ascii", errors="replace")
+                if text.endswith("[A"):  # Up arrow - scroll up
+                    scroll = max(0, scroll - 1)
+                    needs_redraw = True
+                elif text.endswith("[B"):  # Down arrow - scroll down
+                    filtered = [p for p in all_points_sorted if filter_str == "" or filter_str.lower() in p.lower()]
+                    scroll = min(len(filtered) - 1, scroll + 1) if filtered else 0
+                    needs_redraw = True
                 else:
-                    # No more input, so this was just ESC — quit
+                    # Just ESC (or an unrecognized sequence) — quit
                     break
-            elif ch == "\x7f" or ch == "\x08":  # Backspace
+            elif text == "\x7f" or text == "\x08":  # Backspace
                 if filter_str:
                     filter_str = filter_str[:-1]
                     scroll = 0
                     needs_redraw = True
-            elif ch.isprintable():
-                filter_str += ch
+            elif text.isprintable():
+                filter_str += text
                 scroll = 0
                 needs_redraw = True
 
@@ -283,7 +276,7 @@ def _interactive_points_filter(points_db: Points, all_points: list[str], points_
         # Ctrl+C — exit gracefully without traceback
         pass
     finally:
-        termios.tcsetattr(sys.stdin, termios.TCSADRAIN, old_settings)
+        raw.disable()
         sys.stdout.write("\n")
 
 

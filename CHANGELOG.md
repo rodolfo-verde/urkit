@@ -9,6 +9,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Docs
 - Clarified in README and docstrings that saved points are absolute TCP poses in the robot base frame, and why they stay valid after TCP changes
+- README: added platform support section. Windows CLI support is not fully tested and not officially supported; a warning is printed at CLI startup on Windows
+
+### Added
+- Windows support for the interactive CLIs (`urkit teach`, `urkit points`). New `urkit/cli/terminal.py` shim provides raw terminal mode and non-blocking key input on both platforms: termios/tty/select on Unix, msvcrt + kernel32 console modes on Windows
+- On Windows the terminal shim translates extended keycodes (arrows, Home/End, PgUp/PgDn, Insert, Delete) into the same ANSI escape sequences a Unix terminal emits, so key handling is identical across platforms
+- On Windows, ANSI virtual terminal processing is enabled on stdout so colors and cursor codes render on older conhost versions
+
+### Changed
+- `ConnectionMonitor` skips the SIGALRM interrupt on Windows (no self-signals). Faults are still detected via the `fault_detected` flag, which the CLI input loops poll every 50ms. On Windows a fault during a long blocking RTDE call surfaces when the call returns instead of being interrupted immediately
 
 ## [0.4.1] 2026-08-12
 

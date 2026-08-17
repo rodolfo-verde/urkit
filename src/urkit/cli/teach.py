@@ -16,18 +16,21 @@ import ipaddress
 import logging
 import math
 import os
-import select
 import signal
 import sys
-import termios
 import time
-import tty
 from pathlib import Path
 
 import yaml
 
-from urkit.config import _load_config as load_config
 from urkit.cli.colors import blue, cyan, dim, green, red, yellow
+from urkit.cli.terminal import (
+    RawTerminal,
+    read_burst,
+    wait_input,
+    warn_if_windows,
+)
+from urkit.config import _load_config as load_config
 from urkit.cli.connection_monitor import ConnectionMonitor
 from urkit.cli.points import _interactive_points_filter
 from urkit.connection import (
@@ -179,38 +182,6 @@ def _validate_ip(ip: str) -> bool:
 
 
 
-
-
-# ------------------------------------------------------------------
-# Raw terminal I/O
-# ------------------------------------------------------------------
-
-class _RawTerminal:
-    """Manage raw terminal mode with tcgetattr/tcsetattr.
-
-    Context-manager based: enters raw mode on __enter__, restores on __exit__.
-    Single-character non-blocking reads via getkey().
-    """
-
-    def __enter__(self) -> "_RawTerminal":
-        self._old_settings = termios.tcgetattr(sys.stdin)
-        tty.setcbreak(sys.stdin.fileno())
-        return self
-
-    def __exit__(self, *args) -> None:
-        if hasattr(self, "_old_settings"):
-            termios.tcsetattr(sys.stdin, termios.TCSADRAIN, self._old_settings)
-
-    def getkey(self) -> str:
-        """Read a single character without waiting for Enter.
-
-        Returns:
-            Single character string, or empty string if no input.
-        """
-        ready, _, _ = select.select([sys.stdin], [], [], 0.05)
-        if ready:
-            return sys.stdin.read(1)
-        return ""
 
 
 # ------------------------------------------------------------------
@@ -469,16 +440,19 @@ def _draw_help() -> None:
 # Point submenus (restore canonical terminal for multi-char input)
 # ------------------------------------------------------------------
 
-def _configure_terminal() -> list:
-    """Disable canonical mode and echo."""
-    old_settings = termios.tcgetattr(sys.stdin)
-    tty.setcbreak(sys.stdin.fileno())
-    return old_settings
+# Raw terminal shared by the main loop, the SIGINT handler, and the
+# exit path. All terminal setup goes through the cross-platform shim.
+_raw_terminal = RawTerminal()
 
 
-def _restore_terminal(old_settings: list) -> None:
+def _configure_terminal() -> None:
+    """Enter raw terminal mode (no canonical, no echo)."""
+    _raw_terminal.enable()
+
+
+def _restore_terminal() -> None:
     """Restore canonical mode and echo."""
-    termios.tcsetattr(sys.stdin, termios.TCSADRAIN, old_settings)
+    _raw_terminal.disable()
 
 
 def _read_input(prompt: str, max_len: int = 30) -> str | None:
@@ -494,51 +468,50 @@ def _read_input(prompt: str, max_len: int = 30) -> str | None:
     Returns:
         Input string, or None if cancelled (ESC/empty).
     """
-    old_settings = termios.tcgetattr(sys.stdin)
-    tty.setcbreak(sys.stdin.fileno())
-    # Disable echo — we handle character display ourselves to avoid conflicts
-    settings = termios.tcgetattr(sys.stdin)
-    settings[3] = settings[3] & ~termios.ECHO
-    termios.tcsetattr(sys.stdin, termios.TCSADRAIN, settings)
+    raw = RawTerminal()
+    raw.enable()
 
     sys.stdout.write(prompt)
     sys.stdout.flush()
 
     name = ""
-    while True:
-        ready, _, _ = select.select([sys.stdin], [], [], 0.1)
-        if not ready:
-            if _cli_monitor and _cli_monitor.fault_detected:
-                termios.tcsetattr(sys.stdin, termios.TCSADRAIN, old_settings)
-                raise URKitConnectionError(
-                    f"Robot fault detected: {_cli_monitor._reason or 'RTDE connection lost'}. "
-                    "RTDE connection lost."
-                )
-            continue
-        ch = sys.stdin.read(1)
-        if ch == "\x1b":
-            sys.stdout.write("\033[K")
-            sys.stdout.flush()
-            return None
-        elif ch == "\x03":  # Ctrl+C
-            sys.stdout.write("\033[K")
-            sys.stdout.flush()
-            return None
-        elif ch == "\x08" or ch == "\x7f":  # Backspace
-            if name:
-                name = name[:-1]
-                sys.stdout.write("\b \b")
-                sys.stdout.flush()
-        elif ch == "\n" or ch == "\r":
-            sys.stdout.write("\033[K")
-            sys.stdout.flush()
-            break
-        elif len(name) < max_len and ch.isprintable():
-            name += ch
-            sys.stdout.write(ch)
-            sys.stdout.flush()
+    try:
+        while True:
+            if not wait_input(0.1):
+                if _cli_monitor and _cli_monitor.fault_detected:
+                    raise URKitConnectionError(
+                        f"Robot fault detected: {_cli_monitor._reason or 'RTDE connection lost'}. "
+                        "RTDE connection lost."
+                    )
+                continue
+            text = read_burst(0.0).decode("ascii", errors="replace")
+            if not text:
+                continue
+            done = False
+            for ch in text:
+                if ch == "\x1b" or ch == "\x03":  # ESC or Ctrl+C → cancel
+                    sys.stdout.write("\033[K")
+                    sys.stdout.flush()
+                    return None
+                elif ch == "\x08" or ch == "\x7f":  # Backspace
+                    if name:
+                        name = name[:-1]
+                        sys.stdout.write("\b \b")
+                        sys.stdout.flush()
+                elif ch == "\n" or ch == "\r":
+                    sys.stdout.write("\033[K")
+                    sys.stdout.flush()
+                    done = True
+                    break
+                elif len(name) < max_len and ch.isprintable():
+                    name += ch
+                    sys.stdout.write(ch)
+                    sys.stdout.flush()
+            if done:
+                break
+    finally:
+        raw.disable()
 
-    termios.tcsetattr(sys.stdin, termios.TCSADRAIN, old_settings)
     sys.stdout.write("\r\033[K\n")
     sys.stdout.flush()
     return name.strip()
@@ -606,12 +579,8 @@ def _filter_select_points(
     cursor = 0
 
     # Set terminal to raw mode once, outside the loop
-    old_settings = termios.tcgetattr(sys.stdin)
-    new_settings = termios.tcgetattr(sys.stdin)
-    new_settings[3] = new_settings[3] & ~(termios.ICANON | termios.ECHO)
-    termios.tcsetattr(sys.stdin, termios.TCSADRAIN, new_settings)
-
-    fd = sys.stdin.fileno()
+    raw = RawTerminal()
+    raw.enable()
 
     try:
         while True:
@@ -645,27 +614,19 @@ def _filter_select_points(
 
             sys.stdout.flush()
 
-            ready, _, _ = select.select([fd], [], [], 0.1)
-            if not ready:
+            # Wait for input, then read the full burst (e.g. the
+            # 3-byte \x1b[A arrow-key sequence) in one go.
+            raw_bytes = read_burst(0.1)
+            if not raw_bytes:
                 if _cli_monitor and _cli_monitor.fault_detected:
-                    termios.tcsetattr(sys.stdin, termios.TCSADRAIN, old_settings)
                     raise URKitConnectionError(
                         f"Robot fault detected: {_cli_monitor._reason or 'RTDE connection lost'}. "
                         "RTDE connection lost."
                     )
                 continue
 
-            # Read all bytes that arrived together — avoids Python text-mode
-            # buffering silently consuming escape sequence bytes.
-            # After select() says ready, os.read() gets everything the terminal
-            # sent in one burst (e.g., \x1b[A for up-arrow). A second read
-            # would block, so we only read once per select() notification.
-            raw = os.read(fd, 64)
-            if not raw:
-                continue
-
             # Decode and parse sequentially, handling multi-byte escape sequences
-            text = raw.decode("ascii", errors="replace")
+            text = raw_bytes.decode("ascii", errors="replace")
             i = 0
             while i < len(text):
                 ch = text[i]
@@ -698,7 +659,7 @@ def _filter_select_points(
 
                 i += 1
     finally:
-        termios.tcsetattr(sys.stdin, termios.TCSADRAIN, old_settings)
+        raw.disable()
 
 
 def _submenu_goto_point(
@@ -764,10 +725,9 @@ def _submenu_goto_point(
                 robot, name, mode_label, start_pose, target_pose, is_cartesian, max_progress
             )
             max_progress = pct
-            ready, _, _ = select.select([sys.stdin], [], [], 0.05)
-            if ready:
-                key = sys.stdin.read(1)
-                if key == " ":  # Space to cancel
+            if wait_input(0.05):
+                key = read_burst(0.0).decode("ascii", errors="replace")
+                if " " in key:  # Space to cancel
                     cancelled = True
                     break
 
@@ -905,11 +865,8 @@ def _submenu_orient_tcp(
 ) -> None:
     """Interactive submenu to orient TCP along a base-axis direction."""
     cursor = 0
-    old_settings = termios.tcgetattr(sys.stdin)
-    new_settings = termios.tcgetattr(sys.stdin)
-    new_settings[3] = new_settings[3] & ~(termios.ICANON | termios.ECHO)
-    termios.tcsetattr(sys.stdin, termios.TCSADRAIN, new_settings)
-    fd = sys.stdin.fileno()
+    raw = RawTerminal()
+    raw.enable()
 
     try:
         while True:
@@ -926,20 +883,15 @@ def _submenu_orient_tcp(
             sys.stdout.write(f"\n  {dim('Enter')} to orient {green(_TCP_ORIENT_OPTIONS[cursor][0])}\n")
             sys.stdout.flush()
 
-            ready, _, _ = select.select([fd], [], [], 0.1)
-            if not ready:
+            raw_bytes = read_burst(0.1)
+            if not raw_bytes:
                 if _cli_monitor and _cli_monitor.fault_detected:
-                    termios.tcsetattr(sys.stdin, termios.TCSADRAIN, old_settings)
                     raise URKitConnectionError(
                         f"Robot fault detected: {_cli_monitor._reason or 'RTDE connection lost'}. "
                         "RTDE connection lost."
                     )
                 continue
-
-            raw = os.read(fd, 64)
-            if not raw:
-                continue
-            text = raw.decode("ascii", errors="replace")
+            text = raw_bytes.decode("ascii", errors="replace")
             i = 0
             selected = None
             while i < len(text):
@@ -964,7 +916,7 @@ def _submenu_orient_tcp(
             if selected is not None:
                 break
     finally:
-        termios.tcsetattr(sys.stdin, termios.TCSADRAIN, old_settings)
+        raw.disable()
 
     if selected is None:
         messages.append("Cancelled")
@@ -1019,11 +971,8 @@ def _submenu_freedrive_axes(
         axes = [1, 1, 1, 1, 1, 1]
 
     cursor = 0
-    old_settings = termios.tcgetattr(sys.stdin)
-    new_settings = termios.tcgetattr(sys.stdin)
-    new_settings[3] = new_settings[3] & ~(termios.ICANON | termios.ECHO)
-    termios.tcsetattr(sys.stdin, termios.TCSADRAIN, new_settings)
-    fd = sys.stdin.fileno()
+    raw = RawTerminal()
+    raw.enable()
 
     try:
         while True:
@@ -1043,14 +992,10 @@ def _submenu_freedrive_axes(
             sys.stdout.write(f"  {dim('Enter')} to apply · {dim('ESC')} to cancel\n")
             sys.stdout.flush()
 
-            ready, _, _ = select.select([fd], [], [], 0.1)
-            if not ready:
+            raw_bytes = read_burst(0.1)
+            if not raw_bytes:
                 continue
-
-            raw = os.read(fd, 64)
-            if not raw:
-                continue
-            text = raw.decode("ascii", errors="replace")
+            text = raw_bytes.decode("ascii", errors="replace")
             i = 0
             applied = False
             while i < len(text):
@@ -1077,7 +1022,7 @@ def _submenu_freedrive_axes(
             if applied:
                 break
     finally:
-        termios.tcsetattr(sys.stdin, termios.TCSADRAIN, old_settings)
+        raw.disable()
 
     if sum(axes) == 0:
         messages.append("Cancelled — at least 1 axis must be active")
@@ -1203,11 +1148,11 @@ def _teach_pendant(
         print("Error: stdin is not a terminal. Run from an interactive shell.")
         sys.exit(1)
 
-    old_settings = termios.tcgetattr(sys.stdin)
-
     # SIGINT handler: restore terminal and exit when Ctrl+C pressed.
-    # tty.setcbreak() keeps ISIG enabled, so Ctrl+C generates SIGINT.
-    # os._exit() works even when blocked in C library code.
+    # On Unix, raw mode keeps ISIG enabled, so Ctrl+C generates SIGINT.
+    # On Windows, Ctrl+C arrives as a raw 0x03 byte instead (handled by
+    # the main loop's exit key path). os._exit() works even when blocked
+    # in C library code.
     def _sigint_handler(signum: int, frame: object) -> None:
         try:
             if state["freedrive"]:
@@ -1224,7 +1169,7 @@ def _teach_pendant(
         except Exception:
             pass
         try:
-            _restore_terminal(old_settings)
+            _restore_terminal()
         except Exception:
             pass
         sys.stderr.write("\nInterrupted.\n")
@@ -1235,7 +1180,13 @@ def _teach_pendant(
     # Connection watchdog: detects faults and interrupts blocking calls.
     monitor = ConnectionMonitor(robot)
     monitor.start()
-    _old_sigalrm = signal.signal(signal.SIGALRM, monitor.alarm_handler)
+    # SIGALRM does not exist on Windows: the monitor sets its
+    # fault_detected flag instead, and the input-wait loops below check
+    # it every 50ms. Faults during long blocking RTDE calls surface
+    # when the call returns rather than being interrupted immediately.
+    _old_sigalrm = None
+    if hasattr(signal, "SIGALRM"):
+        _old_sigalrm = signal.signal(signal.SIGALRM, monitor.alarm_handler)
     global _cli_monitor
     _cli_monitor = monitor  # used by _read_input and _filter_select_points
 
@@ -1254,8 +1205,7 @@ def _teach_pendant(
 
                 # --- Wait for a key ---
                 while True:
-                    ready, _, _ = select.select([sys.stdin], [], [], 0.05)
-                    if ready:
+                    if wait_input(0.05):
                         break
 
                     # Periodic refresh while in freedrive — robot may be moving by hand
@@ -1278,17 +1228,10 @@ def _teach_pendant(
                 # behind — when the user switches from one movement key to
                 # another, the last buffered copy of the old key fires one final
                 # move in the wrong direction before the new key is read.
-                # Fix: after select() signals ready, drain all immediately
-                # available bytes (non-blocking) and use the last one.
-                key = ""
-                while True:
-                    ready, _, _ = select.select([sys.stdin], [], [], 0.0)
-                    if not ready:
-                        break
-                    ch = sys.stdin.read(1).lower()
-                    if not ch:
-                        break
-                    key = ch
+                # Fix: drain all immediately available bytes
+                # (non-blocking) and use the last one.
+                key_text = read_burst(0.0).decode("ascii", errors="replace")
+                key = key_text[-1].lower() if key_text else ""
                 if not key:
                     continue
 
@@ -1550,14 +1493,15 @@ def _teach_pendant(
         finally:
             # Stop monitor and restore signal handler
             monitor.stop()
-            signal.signal(signal.SIGALRM, _old_sigalrm)
+            if _old_sigalrm is not None:
+                signal.signal(signal.SIGALRM, _old_sigalrm)
 
     finally:
         _urkit_logger.removeHandler(_log_handler)
         _urkit_logger.propagate = True
         # Restore terminal
         try:
-            _restore_terminal(old_settings)
+            _restore_terminal()
         except Exception:
             pass
         print("\n  Exiting teach pendant.")
@@ -1569,6 +1513,8 @@ def teach_command(args) -> None:
     Args:
         args: Parsed arguments from argparse (with teach subcommand attributes).
     """
+
+    warn_if_windows()
 
     # Configure logging
     if args.verbose:
