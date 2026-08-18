@@ -45,6 +45,15 @@ if sys.platform == "win32":
     # exposed in the Windows type stubs; on 64-bit Windows both use
     # the same calling convention.
     _kernel32 = ctypes.CDLL("kernel32", use_last_error=True)
+    # Declare prototypes. The default restype is c_int, which would
+    # truncate 64-bit HANDLE values from GetStdHandle.
+    _kernel32.GetStdHandle.argtypes = [ctypes.c_int]
+    _kernel32.GetStdHandle.restype = ctypes.c_void_p
+    _kernel32.GetConsoleMode.argtypes = [
+        ctypes.c_void_p,
+        ctypes.POINTER(ctypes.c_uint32),
+    ]
+    _kernel32.SetConsoleMode.argtypes = [ctypes.c_void_p, ctypes.c_uint32]
     _STD_INPUT_HANDLE = -10
     _STD_OUTPUT_HANDLE = -11
     _ENABLE_PROCESSED_INPUT = 0x0001
@@ -52,9 +61,10 @@ if sys.platform == "win32":
     _ENABLE_ECHO_INPUT = 0x0004
     _ENABLE_VIRTUAL_TERMINAL_PROCESSING = 0x0004
 
-    # msvcrt extended-key scan codes (after the 0xE0/0x00 prefix byte)
-    # mapped to the ANSI CSI sequences a Unix terminal emits for the
-    # same key.
+    # msvcrt extended-key scan codes after the 0xE0 prefix byte, mapped
+    # to the ANSI CSI sequences a Unix terminal emits for the same key.
+    # Keys carrying the 0x00 prefix are not translated: their scan codes
+    # overlap with arrow keys, and the CLIs don't use them.
     _EXTENDED_KEYS: dict[int, str] = {
         0x48: "\x1b[A",  # Up
         0x50: "\x1b[B",  # Down
@@ -126,7 +136,15 @@ class RawTerminal:
         raw.disable()   # idempotent, safe to call multiple times
     """
 
-    def __init__(self) -> None:
+    def __init__(self, echo: bool = False) -> None:
+        """Args:
+            echo: Keep terminal echo enabled (cbreak semantics).
+                The main teach loop uses echo=True to match the
+                pre-shim behavior; menus and input prompts use the
+                default echo=False because they display characters
+                themselves.
+        """
+        self._echo = echo
         self._enabled = False
         self._old_settings: list[Any] | None = None
         self._old_mode: int | None = None
@@ -139,22 +157,28 @@ class RawTerminal:
         if sys.platform == "win32":
             self._stdin_handle = _kernel32.GetStdHandle(_STD_INPUT_HANDLE)
             self._old_mode = _console_mode(self._stdin_handle)
-            # Disable processed input, line input, and echo. Ctrl+C
-            # arrives as raw byte 0x03 (handled by the CLIs) instead
-            # of KeyboardInterrupt, which would skip terminal restore.
-            _set_console_mode(
-                self._stdin_handle,
-                self._old_mode
-                & ~(
-                    _ENABLE_PROCESSED_INPUT
-                    | _ENABLE_LINE_INPUT
-                    | _ENABLE_ECHO_INPUT
-                ),
+            # Disable processed input and line input. Ctrl+C arrives
+            # as raw byte 0x03 (handled by the CLIs) instead of
+            # KeyboardInterrupt, which would skip terminal restore.
+            # Echo is kept only when echo=True.
+            mode = self._old_mode & ~(
+                _ENABLE_PROCESSED_INPUT | _ENABLE_LINE_INPUT
             )
+            if not self._echo:
+                mode &= ~_ENABLE_ECHO_INPUT
+            _set_console_mode(self._stdin_handle, mode)
             _enable_ansi_output()
         else:
             self._old_settings = termios.tcgetattr(sys.stdin)
-            tty.setcbreak(sys.stdin.fileno())
+            if self._echo:
+                # cbreak: no canonical mode, echo and signals stay on
+                tty.setcbreak(sys.stdin.fileno())
+            else:
+                # No canonical mode, no echo (matches the menus' and
+                # input prompts' pre-shim termios setup)
+                settings = termios.tcgetattr(sys.stdin)
+                settings[3] = settings[3] & ~(termios.ICANON | termios.ECHO)
+                termios.tcsetattr(sys.stdin, termios.TCSADRAIN, settings)
         self._enabled = True
 
     def disable(self) -> None:
@@ -188,13 +212,18 @@ def _win_read_pending() -> bytes:
         out = bytearray()
         while msvcrt.kbhit():
             byte = msvcrt.getch()
-            if byte in (b"\xe0", b"\x00"):
-                code = msvcrt.getch()
+            if byte == b"\xe0":
+                # getch() returns bytes; the scan code dict is keyed
+                # by int, so take the single byte's ordinal
+                code = msvcrt.getch()[0]
                 seq = _EXTENDED_KEYS.get(code)
                 if seq is None:
-                    # Unrecognized function key (F1-F12 etc.): drop it
+                    # Unrecognized extended key: drop it
                     continue
                 out += seq.encode("ascii")
+            elif byte == b"\x00":
+                # Untranslated extended prefix: consume the scan code
+                msvcrt.getch()
             else:
                 out += byte
         return bytes(out)

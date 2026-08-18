@@ -252,25 +252,35 @@ def _interactive_points_filter(points_db: Points, all_points: list[str], points_
                 # that arrives late; wait a bit before treating it as quit.
                 if text == "\x1b":
                     text = text + read_burst(0.2).decode("ascii", errors="replace")
-                if text.endswith("[A"):  # Up arrow - scroll up
+                if "[A" in text:  # Up arrow - scroll up
                     scroll = max(0, scroll - 1)
                     needs_redraw = True
-                elif text.endswith("[B"):  # Down arrow - scroll down
+                elif "[B" in text:  # Down arrow - scroll down
                     filtered = [p for p in all_points_sorted if filter_str == "" or filter_str.lower() in p.lower()]
                     scroll = min(len(filtered) - 1, scroll + 1) if filtered else 0
                     needs_redraw = True
                 else:
                     # Just ESC (or an unrecognized sequence) — quit
                     break
-            elif text == "\x7f" or text == "\x08":  # Backspace
-                if filter_str:
-                    filter_str = filter_str[:-1]
-                    scroll = 0
-                    needs_redraw = True
-            elif text.isprintable():
-                filter_str += text
-                scroll = 0
-                needs_redraw = True
+            else:
+                # A burst can mix printable chars and backspaces
+                # (fast typing), so process sequentially.
+                quit_requested = False
+                for ch in text:
+                    if ch == "\x03":  # Ctrl+C (raw byte on Windows)
+                        quit_requested = True
+                        break
+                    elif ch == "\x7f" or ch == "\x08":  # Backspace
+                        if filter_str:
+                            filter_str = filter_str[:-1]
+                            scroll = 0
+                            needs_redraw = True
+                    elif ch.isprintable():
+                        filter_str += ch
+                        scroll = 0
+                        needs_redraw = True
+                if quit_requested:
+                    break
 
     except KeyboardInterrupt:
         # Ctrl+C — exit gracefully without traceback

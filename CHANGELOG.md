@@ -5,6 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+- Windows: arrow keys (and Home/End/PgUp/PgDn/Insert/Delete) in the teach and points CLIs. The msvcrt scan-code lookup compared bytes against int dict keys, so every extended key was silently dropped
+- Windows: 64-bit HANDLE truncation. ctypes prototypes for GetStdHandle/GetConsoleMode/SetConsoleMode are now declared so handle values are not truncated to 32 bits
+- Teach pendant: input prompts and submenus no longer double-echo typed characters. The pre-shim code ran the main loop in cbreak (echo on) but prompts and menus with echo off; the shim now preserves both states
+- Points explorer: mixed input bursts (e.g. a letter and backspace typed together) are processed in order, and Ctrl+C quits on Windows (it arrives as a raw byte there)
+
 ## [0.4.2] 2026-08-17
 
 ### Docs

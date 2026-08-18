@@ -442,11 +442,13 @@ def _draw_help() -> None:
 
 # Raw terminal shared by the main loop, the SIGINT handler, and the
 # exit path. All terminal setup goes through the cross-platform shim.
-_raw_terminal = RawTerminal()
+# echo=True matches the pre-shim cbreak behavior of the main loop
+# (echo on, canonical off); submenus and prompts use echo=False.
+_raw_terminal = RawTerminal(echo=True)
 
 
 def _configure_terminal() -> None:
-    """Enter raw terminal mode (no canonical, no echo)."""
+    """Enter raw terminal mode (no canonical, echo on)."""
     _raw_terminal.enable()
 
 
@@ -583,36 +585,44 @@ def _filter_select_points(
     raw.enable()
 
     try:
+        needs_redraw = True
         while True:
-            # Clear screen and draw
-            sys.stdout.write("\033[2J\033[1;1H")
-            sys.stdout.write(cyan(f"  === {title} ===") + "\n")
-            sys.stdout.write(dim("  Arrows navigate · Type to filter · Enter select · ESC cancel") + "\n\n")
-            sys.stdout.write(f"  {blue('Search:')} {filter_str}\n")
-            sys.stdout.write("  " + dim("─" * 60) + "\n")
+            # Redraw only when state changed. Redrawing every poll
+            # iteration (10x/s) is invisible on Linux terminals but
+            # flickers visibly on the Windows console.
+            if needs_redraw:
+                # Clear screen and draw
+                sys.stdout.write("\033[2J\033[1;1H")
+                sys.stdout.write(cyan(f"  === {title} ===") + "\n")
+                sys.stdout.write(dim("  Arrows navigate · Type to filter · Enter select · ESC cancel") + "\n\n")
+                sys.stdout.write(f"  {blue('Search:')} {filter_str}\n")
+                sys.stdout.write("  " + dim("─" * 60) + "\n")
 
-            filtered = [p for p in all_points if filter_str == "" or filter_str.lower() in p.lower()]
+                filtered = [p for p in all_points if filter_str == "" or filter_str.lower() in p.lower()]
 
-            # Clamp cursor to valid range
-            if not filtered:
-                cursor = 0
-            elif cursor >= len(filtered):
-                cursor = len(filtered) - 1
+                # Clamp cursor to valid range
+                if not filtered:
+                    cursor = 0
+                elif cursor >= len(filtered):
+                    cursor = len(filtered) - 1
 
-            if not filtered:
-                sys.stdout.write(yellow(f"  No points match '{filter_str}'") + "\n")
-                sys.stdout.write("\n  " + dim("Type to search for points...") + "\n")
+                if not filtered:
+                    sys.stdout.write(yellow(f"  No points match '{filter_str}'") + "\n")
+                    sys.stdout.write("\n  " + dim("Type to search for points...") + "\n")
+                else:
+                    sys.stdout.write(blue("  Matching points:") + "\n")
+                    for i, p in enumerate(filtered):
+                        marker = green("►") if i == cursor else " "
+                        highlighted = _highlight_match(p, filter_str)
+                        sys.stdout.write(f"    {marker} {highlighted}\n")
+
+                    sel = green("'" + filtered[cursor] + "'")
+                    sys.stdout.write(f"\n  {dim('Enter')} to select {sel}\n")
+
+                sys.stdout.flush()
+                needs_redraw = False
             else:
-                sys.stdout.write(blue("  Matching points:") + "\n")
-                for i, p in enumerate(filtered):
-                    marker = green("►") if i == cursor else " "
-                    highlighted = _highlight_match(p, filter_str)
-                    sys.stdout.write(f"    {marker} {highlighted}\n")
-
-                sel = green("'" + filtered[cursor] + "'")
-                sys.stdout.write(f"\n  {dim('Enter')} to select {sel}\n")
-
-            sys.stdout.flush()
+                filtered = [p for p in all_points if filter_str == "" or filter_str.lower() in p.lower()]
 
             # Wait for input, then read the full burst (e.g. the
             # 3-byte \x1b[A arrow-key sequence) in one go.
@@ -628,6 +638,7 @@ def _filter_select_points(
             # Decode and parse sequentially, handling multi-byte escape sequences
             text = raw_bytes.decode("ascii", errors="replace")
             i = 0
+            changed = False
             while i < len(text):
                 ch = text[i]
 
@@ -637,8 +648,10 @@ def _filter_select_points(
                         key = text[i + 2]
                         if key == "A":
                             cursor = max(0, cursor - 1)
+                            changed = True
                         elif key == "B":
                             cursor = min(len(filtered) - 1, cursor + 1)
+                            changed = True
                         # Unrecognized CSI sequences are ignored
                         i += 3
                         continue
@@ -652,12 +665,15 @@ def _filter_select_points(
                     return None
                 elif ch == "\x08" or ch == "\x7f":
                     filter_str = filter_str[:-1]
+                    changed = True
                 elif ch == "\x03":
                     return None
                 elif ch.isprintable() and len(filter_str) < 30:
                     filter_str += ch
+                    changed = True
 
                 i += 1
+            needs_redraw = changed
     finally:
         raw.disable()
 
@@ -869,19 +885,25 @@ def _submenu_orient_tcp(
     raw.enable()
 
     try:
+        needs_redraw = True
         while True:
-            sys.stdout.write("\033[2J\033[1;1H")
-            sys.stdout.write(cyan("  === ORIENT TCP ===") + "\n")
-            sys.stdout.write(dim("  Arrows navigate · Enter select · ESC cancel") + "\n\n")
-            sys.stdout.write(blue("  Point tool Z toward:") + "\n")
-            sys.stdout.write("  " + dim("─" * 60) + "\n")
+            # Redraw only when the cursor moved. Redrawing every poll
+            # iteration (10x/s) is invisible on Linux terminals but
+            # flickers visibly on the Windows console.
+            if needs_redraw:
+                sys.stdout.write("\033[2J\033[1;1H")
+                sys.stdout.write(cyan("  === ORIENT TCP ===") + "\n")
+                sys.stdout.write(dim("  Arrows navigate · Enter select · ESC cancel") + "\n\n")
+                sys.stdout.write(blue("  Point tool Z toward:") + "\n")
+                sys.stdout.write("  " + dim("─" * 60) + "\n")
 
-            for i, (label, _direction) in enumerate(_TCP_ORIENT_OPTIONS):
-                marker = green("►") if i == cursor else " "
-                sys.stdout.write(f"    {marker} {label}\n")
+                for i, (label, _direction) in enumerate(_TCP_ORIENT_OPTIONS):
+                    marker = green("►") if i == cursor else " "
+                    sys.stdout.write(f"    {marker} {label}\n")
 
-            sys.stdout.write(f"\n  {dim('Enter')} to orient {green(_TCP_ORIENT_OPTIONS[cursor][0])}\n")
-            sys.stdout.flush()
+                sys.stdout.write(f"\n  {dim('Enter')} to orient {green(_TCP_ORIENT_OPTIONS[cursor][0])}\n")
+                sys.stdout.flush()
+                needs_redraw = False
 
             raw_bytes = read_burst(0.1)
             if not raw_bytes:
@@ -894,6 +916,7 @@ def _submenu_orient_tcp(
             text = raw_bytes.decode("ascii", errors="replace")
             i = 0
             selected = None
+            moved = False
             while i < len(text):
                 ch = text[i]
                 if ch == "\x1b":
@@ -901,8 +924,10 @@ def _submenu_orient_tcp(
                         key = text[i + 2]
                         if key == "A":
                             cursor = max(0, cursor - 1)
+                            moved = True
                         elif key == "B":
                             cursor = min(len(_TCP_ORIENT_OPTIONS) - 1, cursor + 1)
+                            moved = True
                         i += 3
                         continue
                     else:
@@ -913,6 +938,7 @@ def _submenu_orient_tcp(
                     return None
                 i += 1
 
+            needs_redraw = moved
             if selected is not None:
                 break
     finally:
@@ -975,22 +1001,28 @@ def _submenu_freedrive_axes(
     raw.enable()
 
     try:
+        needs_redraw = True
         while True:
-            sys.stdout.write("\033[2J\033[1;1H")
-            sys.stdout.write(cyan("  === FREEDRIVE AXES ===") + "\n")
-            sys.stdout.write(dim("  Arrows navigate · Space toggle · Enter apply · ESC cancel") + "\n\n")
-            sys.stdout.write("  " + dim("─" * 40) + "\n")
+            # Redraw only when the cursor moved or an axis toggled.
+            # Redrawing every poll iteration (10x/s) is invisible on
+            # Linux terminals but flickers visibly on the Windows console.
+            if needs_redraw:
+                sys.stdout.write("\033[2J\033[1;1H")
+                sys.stdout.write(cyan("  === FREEDRIVE AXES ===") + "\n")
+                sys.stdout.write(dim("  Arrows navigate · Space toggle · Enter apply · ESC cancel") + "\n\n")
+                sys.stdout.write("  " + dim("─" * 40) + "\n")
 
-            for i, label in enumerate(_FD_AXIS_LABELS):
-                marker = green("►") if i == cursor else " "
-                state_str = green("ON") if axes[i] else red("OFF")
-                sys.stdout.write(f"    {marker} {label:<6} {state_str}\n")
+                for i, label in enumerate(_FD_AXIS_LABELS):
+                    marker = green("►") if i == cursor else " "
+                    state_str = green("ON") if axes[i] else red("OFF")
+                    sys.stdout.write(f"    {marker} {label:<6} {state_str}\n")
 
-            sys.stdout.write("  " + dim("─" * 40) + "\n")
-            active = sum(axes)
-            sys.stdout.write(f"\n  {blue('Active axes:')} {green(str(active))} / 6\n")
-            sys.stdout.write(f"  {dim('Enter')} to apply · {dim('ESC')} to cancel\n")
-            sys.stdout.flush()
+                sys.stdout.write("  " + dim("─" * 40) + "\n")
+                active = sum(axes)
+                sys.stdout.write(f"\n  {blue('Active axes:')} {green(str(active))} / 6\n")
+                sys.stdout.write(f"  {dim('Enter')} to apply · {dim('ESC')} to cancel\n")
+                sys.stdout.flush()
+                needs_redraw = False
 
             raw_bytes = read_burst(0.1)
             if not raw_bytes:
@@ -998,6 +1030,7 @@ def _submenu_freedrive_axes(
             text = raw_bytes.decode("ascii", errors="replace")
             i = 0
             applied = False
+            changed = False
             while i < len(text):
                 ch = text[i]
                 if ch == "\x1b":
@@ -1005,20 +1038,24 @@ def _submenu_freedrive_axes(
                         key = text[i + 2]
                         if key == "A":
                             cursor = max(0, cursor - 1)
+                            changed = True
                         elif key == "B":
                             cursor = min(5, cursor + 1)
+                            changed = True
                         i += 3
                         continue
                     else:
                         return  # ESC → cancel
                 if ch == " ":
                     axes[cursor] = 1 - axes[cursor]
+                    changed = True
                 elif ch == "\n" or ch == "\r":
                     applied = True
                 elif ch == "\x03":
                     return
                 i += 1
 
+            needs_redraw = changed
             if applied:
                 break
     finally:
