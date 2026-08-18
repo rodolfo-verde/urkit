@@ -30,17 +30,26 @@ def _suppress_rtde_stderr() -> Iterator[None]:
     to raw stderr (fd 2) on every call when the script is stopped.
     This context manager suppresses those messages by redirecting fd 2
     around the call.
+
+    Diagnostic: set URKIT_RTDE_STDERR=<path> to capture the suppressed
+    output in a file (append mode) instead. ur_rtde move failures are
+    reported there and nowhere else, so this is the only way to see
+    why a move was rejected.
     """
-    devnull = os.open(os.devnull, os.O_WRONLY)
+    capture_path = os.environ.get("URKIT_RTDE_STDERR")
+    if capture_path:
+        target_fd = os.open(capture_path, os.O_WRONLY | os.O_CREAT | os.O_APPEND)
+    else:
+        target_fd = os.open(os.devnull, os.O_WRONLY)
     old_stderr = os.dup(2)
     try:
-        os.dup2(devnull, 2)
+        os.dup2(target_fd, 2)
         sys.stderr.flush()
         yield
     finally:
         os.dup2(old_stderr, 2)
         os.close(old_stderr)
-        os.close(devnull)
+        os.close(target_fd)
 
 if TYPE_CHECKING:
     from rtde_control import RTDEControlInterface
@@ -151,7 +160,14 @@ class Motion:
                 "movej: joints=%s, vel=%.3f, acc=%.3f, async=%s", joints, vel, acc, asynchronous
             )
             with _suppress_rtde_stderr():
-                self._rtde_c.moveJ(joints, vel, acc, asynchronous=asynchronous)
+                ok = self._rtde_c.moveJ(joints, vel, acc, asynchronous=asynchronous)
+            if ok is False:
+                raise MotionError(
+                    "moveJ rejected by the controller: the RTDE control script "
+                    "stopped, the robot entered a stop state, or the command "
+                    "timed out. Set URKIT_RTDE_STDERR=<file> to capture "
+                    "ur_rtde's error output."
+                )
         except MotionError:
             raise
         except Exception as e:
@@ -197,7 +213,14 @@ class Motion:
                 "movel: pose=%s, vel=%.3f, acc=%.3f, async=%s", pose, vel, acc, asynchronous
             )
             with _suppress_rtde_stderr():
-                self._rtde_c.moveL(pose, vel, acc, asynchronous=asynchronous)
+                ok = self._rtde_c.moveL(pose, vel, acc, asynchronous=asynchronous)
+            if ok is False:
+                raise MotionError(
+                    "moveL rejected by the controller: the RTDE control script "
+                    "stopped, the robot entered a stop state, or the command "
+                    "timed out. Set URKIT_RTDE_STDERR=<file> to capture "
+                    "ur_rtde's error output."
+                )
         except MotionError:
             raise
         except Exception as e:
@@ -249,7 +272,14 @@ class Motion:
                 current, target, frame.name, vel, acc,
             )
             with _suppress_rtde_stderr():
-                self._rtde_c.moveL(target, vel, acc)
+                ok = self._rtde_c.moveL(target, vel, acc)
+            if ok is False:
+                raise MotionError(
+                    "moveL rejected by the controller: the RTDE control script "
+                    "stopped, the robot entered a stop state, or the command "
+                    "timed out. Set URKIT_RTDE_STDERR=<file> to capture "
+                    "ur_rtde's error output."
+                )
         except MotionError:
             raise
         except Exception as e:

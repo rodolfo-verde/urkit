@@ -16,6 +16,7 @@ from pathlib import Path
 from rich.console import Console
 from rich.table import Table
 
+from urkit import __version__
 from urkit.config import _load_config as load_config
 from urkit.cli.colors import blue, cyan, dim, yellow
 from urkit.cli.terminal import RawTerminal, read_burst, wait_input, warn_if_windows
@@ -158,6 +159,7 @@ def _interactive_points_filter(points_db: Points, all_points: list[str], points_
                 # Clear screen and draw header
                 sys.stdout.write("\033[2J\033[1;1H")
                 sys.stdout.write(cyan("  === POINT EXPLORER ===") + "\n")
+                sys.stdout.write(dim(f"  urkit {__version__}") + "\n")
                 sys.stdout.write(dim("  Type to search · ↑↓ scroll · Enter reload · ESC quit") + "\n\n")
                 sys.stdout.write(f"  {blue('Search:')} {filter_str}\n")
                 if refresh_error:

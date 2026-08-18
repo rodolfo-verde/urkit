@@ -5,6 +5,17 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.6] 2026-08-18
+
+### Fixed
+- Windows: exit-time crash (`stopScript failed: WinError 1` plus `Exception in thread interrupt-watcher` tracebacks). Pressing Ctrl+C made both the main loop and the interrupt watcher run cleanup, so two threads called robot.stop() at once. The main loop now tells the watcher to stand down before it starts its own cleanup, and the watcher exits quietly if the console is closing
+- Silent move failures: ur_rtde reports a rejected move (control script stopped, robot in a stop state, command timeout) by printing to raw stderr and returning False, while urkit redirected stderr to /dev/null and ignored the return value. The move was treated as a success and the robot just stopped with no message. moveL/moveJ now raise a MotionError when the controller rejects the command, so the pendant shows the error
+
+### Added
+- `URKIT_RTDE_STDERR=<path>` environment variable: capture ur_rtde's otherwise-suppressed stderr output in a file (append mode). This is the only place ur_rtde reports why a move was rejected, so it is the diagnostic for move failures and RTDE disconnects
+- Interrupt watcher diagnostic: when it fires, the main thread's blocked location (file:line:function) is printed to stderr, e.g. a socket read inside ur_rtde
+- Version shown in the CLI headers (teach pendant and points explorer)
+
 ## [0.4.5] 2026-08-18
 
 ### Fixed

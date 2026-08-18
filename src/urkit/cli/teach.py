@@ -19,16 +19,19 @@ import os
 import signal
 import sys
 import time
+import traceback
 from pathlib import Path
 
 import yaml
 
+from urkit import __version__
 from urkit.cli.colors import blue, cyan, dim, green, red, yellow
 from urkit.cli.terminal import (
     RawTerminal,
     input_active,
     read_burst,
     start_interrupt_watcher,
+    stop_interrupt_watcher,
     wait_input,
     warn_if_windows,
 )
@@ -297,6 +300,7 @@ def _draw_screen(
     # Header
     lines.append(dim("=" * width))
     lines.append(cyan("  === URKit Teach Pendant ===").center(width))
+    lines.append(dim(f"  urkit {__version__}").center(width))
     lines.append(cyan(f"  IP: {robot.ip}").center(width))
     if expert_mode:
         lines.append(yellow("  EXPERT MODE").center(width))
@@ -773,6 +777,9 @@ def _submenu_goto_point(
     except URKitConnectionError:
         raise
     except Exception as e:
+        logger.debug(
+            "goto move failed: %s\n%s", e, traceback.format_exc()
+        )
         messages.append(f"Error: {e}")
 
 
@@ -1321,6 +1328,9 @@ def _teach_pendant(
 
                 # Exit
                 if key == "\x1b" or key == "\x03":
+                    # The main loop owns cleanup from here; the watcher
+                    # must not fire a second stop/restore in parallel.
+                    stop_interrupt_watcher()
                     if state["freedrive"]:
                         try:
                             robot.disable_freedrive()
@@ -1366,6 +1376,9 @@ def _teach_pendant(
                         moved = True
                         last_move_t = time.monotonic()
                     except MotionError as e:
+                        logger.debug(
+                            "move key %r failed: %s\n%s", key, e, traceback.format_exc()
+                        )
                         messages.append(f"Error: {e}")
 
                 # --- Step size ---
@@ -1576,6 +1589,7 @@ def _teach_pendant(
             print(f"\n{red('Fault:')} {e}")
         finally:
             # Stop monitor and restore signal handler
+            stop_interrupt_watcher()
             monitor.stop()
             if _old_sigalrm is not None:
                 signal.signal(signal.SIGALRM, _old_sigalrm)

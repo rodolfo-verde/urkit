@@ -135,6 +135,18 @@ the main reader. Callers set it around their read sections and clear it
 afterwards."""
 
 
+watcher_stop = threading.Event()
+"""Set when the CLI begins its own shutdown (normal exit, fault exit,
+Ctrl+C in the main loop). The Windows interrupt watcher exits quietly
+without firing, so it cannot race the main thread's cleanup (double
+robot stop, double terminal restore)."""
+
+
+def stop_interrupt_watcher() -> None:
+    """Tell the interrupt watcher to exit quietly. No-op on non-Windows."""
+    watcher_stop.set()
+
+
 def start_interrupt_watcher(
     on_fire: Callable[[str], None],
     fault_reason: Callable[[], str | None],
@@ -163,9 +175,24 @@ def start_interrupt_watcher(
     # guard and cannot see the module inside this closure.
     import msvcrt
 
+    def _where_blocked() -> None:
+        # Diagnostic: report where the main thread was stuck so the
+        # next occurrence can be diagnosed (usually a blocking socket
+        # read inside ur_rtde with no timeout).
+        frame = sys._current_frames().get(threading.main_thread().ident)
+        if frame is None:
+            return
+        code = frame.f_code
+        sys.stderr.write(
+            "[urkit] main thread blocked in "
+            f"{os.path.basename(code.co_filename)}:{frame.f_lineno} "
+            f"in {code.co_name}\n"
+        )
+        sys.stderr.flush()
+
     def _run() -> None:
         backoff = 0.0
-        while True:
+        while not watcher_stop.is_set():
             if backoff > 0:
                 time.sleep(backoff)
                 backoff = 0.0
@@ -174,18 +201,29 @@ def start_interrupt_watcher(
                 continue
             reason = fault_reason()
             if reason is not None:
+                _where_blocked()
                 on_fire(reason)
                 return
-            if not msvcrt.kbhit():
-                time.sleep(0.05)
-                continue
-            byte = msvcrt.getch()
+            try:
+                if not msvcrt.kbhit():
+                    time.sleep(0.05)
+                    continue
+                byte = msvcrt.getch()
+            except OSError:
+                # Console is closing (shutdown in progress). The watcher
+                # is best-effort; exit quietly instead of dying with a
+                # traceback that races the main thread's exit.
+                return
             if byte == b"\x03":
+                _where_blocked()
                 on_fire("Interrupted.")
                 return
             # Not Ctrl+C: give the byte back and back off so the main
             # reader (resuming from a blocking call) processes it.
-            msvcrt.ungetch(byte[0])
+            try:
+                msvcrt.ungetch(byte[0])
+            except OSError:
+                return
             backoff = 0.2
 
     watcher = threading.Thread(
