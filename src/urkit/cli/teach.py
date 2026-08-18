@@ -442,13 +442,11 @@ def _draw_help() -> None:
 
 # Raw terminal shared by the main loop, the SIGINT handler, and the
 # exit path. All terminal setup goes through the cross-platform shim.
-# echo=True matches the pre-shim cbreak behavior of the main loop
-# (echo on, canonical off); submenus and prompts use echo=False.
-_raw_terminal = RawTerminal(echo=True)
+_raw_terminal = RawTerminal()
 
 
 def _configure_terminal() -> None:
-    """Enter raw terminal mode (no canonical, echo on)."""
+    """Enter raw terminal mode (no canonical, no echo)."""
     _raw_terminal.enable()
 
 

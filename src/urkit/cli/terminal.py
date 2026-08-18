@@ -9,8 +9,8 @@ The CLIs need three things from the platform:
 3. On Windows only: ANSI escape processing on stdout so colors and
    cursor codes render.
 
-Unix backend: termios + tty + select, exactly the syscalls the CLIs
-used to issue directly.
+Unix backend: termios + select, the same syscalls the CLIs used to
+issue directly.
 
 Windows backend: msvcrt with console input mode changed via kernel32.
 The console does not emit ANSI sequences for special keys, so the
@@ -38,7 +38,6 @@ if sys.platform == "win32":
 else:
     import select
     import termios
-    import tty
 
 if sys.platform == "win32":
     # CDLL is used instead of WinDLL because ctypes.WinDLL is only
@@ -78,18 +77,35 @@ if sys.platform == "win32":
         0x53: "\x1b[3~",  # Delete
     }
 
+    _WIN_ERROR_TEXT = {
+        5: "access denied",
+        6: "invalid handle",
+        87: "invalid parameter",
+        1225: "session disconnected",
+    }
+
+    def _win_error_detail() -> str:
+        code = ctypes.get_last_error()
+        return f"Win32 error {code} ({_WIN_ERROR_TEXT.get(code, 'unknown')})"
+
     def _console_mode(handle: int) -> int:
         mode = ctypes.c_uint32()
         if not _kernel32.GetConsoleMode(handle, ctypes.byref(mode)):
             raise OSError(
-                "GetConsoleMode failed (stdin is not a console). "
-                "Run from an interactive shell."
+                f"GetConsoleMode failed ({_win_error_detail()}). stdin is "
+                "not a usable console handle; run urkit from an "
+                "interactive shell such as cmd or PowerShell."
             )
         return mode.value
 
-    def _set_console_mode(handle: int, mode: int) -> None:
+    def _set_console_mode(handle: int, mode: int, context: str) -> None:
         if not _kernel32.SetConsoleMode(handle, mode):
-            raise OSError("SetConsoleMode failed")
+            raise OSError(
+                f"SetConsoleMode failed while {context} "
+                f"({_win_error_detail()}, requested mode "
+                f"0x{mode:08x}). The Windows console refused the "
+                "terminal mode change."
+            )
 
     def _enable_ansi_output() -> None:
         """Enable ANSI escape processing on stdout.
@@ -102,7 +118,9 @@ if sys.platform == "win32":
             handle = _kernel32.GetStdHandle(_STD_OUTPUT_HANDLE)
             mode = _console_mode(handle)
             _set_console_mode(
-                handle, mode | _ENABLE_VIRTUAL_TERMINAL_PROCESSING
+                handle,
+                mode | _ENABLE_VIRTUAL_TERMINAL_PROCESSING,
+                "enabling ANSI output",
             )
         except OSError:
             pass
@@ -136,15 +154,7 @@ class RawTerminal:
         raw.disable()   # idempotent, safe to call multiple times
     """
 
-    def __init__(self, echo: bool = False) -> None:
-        """Args:
-            echo: Keep terminal echo enabled (cbreak semantics).
-                The main teach loop uses echo=True to match the
-                pre-shim behavior; menus and input prompts use the
-                default echo=False because they display characters
-                themselves.
-        """
-        self._echo = echo
+    def __init__(self) -> None:
         self._enabled = False
         self._old_settings: list[Any] | None = None
         self._old_mode: int | None = None
@@ -156,29 +166,37 @@ class RawTerminal:
             return
         if sys.platform == "win32":
             self._stdin_handle = _kernel32.GetStdHandle(_STD_INPUT_HANDLE)
+            if not self._stdin_handle:
+                raise OSError(
+                    "stdin is not attached to a Windows console; run "
+                    "urkit from an interactive shell such as cmd or "
+                    "PowerShell."
+                )
             self._old_mode = _console_mode(self._stdin_handle)
-            # Disable processed input and line input. Ctrl+C arrives
-            # as raw byte 0x03 (handled by the CLIs) instead of
-            # KeyboardInterrupt, which would skip terminal restore.
-            # Echo is kept only when echo=True.
-            mode = self._old_mode & ~(
-                _ENABLE_PROCESSED_INPUT | _ENABLE_LINE_INPUT
+            # Disable processed input, line input, and echo. Ctrl+C
+            # arrives as raw byte 0x03 (handled by the CLIs) instead
+            # of KeyboardInterrupt, which would skip terminal restore.
+            # Echo is always off: some consoles refuse raw mode with
+            # echo still enabled, and the CLIs render input themselves.
+            _set_console_mode(
+                self._stdin_handle,
+                self._old_mode
+                & ~(
+                    _ENABLE_PROCESSED_INPUT
+                    | _ENABLE_LINE_INPUT
+                    | _ENABLE_ECHO_INPUT
+                ),
+                "entering raw mode",
             )
-            if not self._echo:
-                mode &= ~_ENABLE_ECHO_INPUT
-            _set_console_mode(self._stdin_handle, mode)
             _enable_ansi_output()
         else:
             self._old_settings = termios.tcgetattr(sys.stdin)
-            if self._echo:
-                # cbreak: no canonical mode, echo and signals stay on
-                tty.setcbreak(sys.stdin.fileno())
-            else:
-                # No canonical mode, no echo (matches the menus' and
-                # input prompts' pre-shim termios setup)
-                settings = termios.tcgetattr(sys.stdin)
-                settings[3] = settings[3] & ~(termios.ICANON | termios.ECHO)
-                termios.tcsetattr(sys.stdin, termios.TCSADRAIN, settings)
+            # No canonical mode, no echo; ISIG stays on so Ctrl+C
+            # still raises KeyboardInterrupt. Same state as the
+            # pre-shim menus and input prompts.
+            settings = termios.tcgetattr(sys.stdin)
+            settings[3] = settings[3] & ~(termios.ICANON | termios.ECHO)
+            termios.tcsetattr(sys.stdin, termios.TCSADRAIN, settings)
         self._enabled = True
 
     def disable(self) -> None:
@@ -188,7 +206,9 @@ class RawTerminal:
         if sys.platform == "win32":
             if self._stdin_handle is None or self._old_mode is None:
                 raise RuntimeError("RawTerminal disabled before enable()")
-            _set_console_mode(self._stdin_handle, self._old_mode)
+            _set_console_mode(
+                self._stdin_handle, self._old_mode, "restoring terminal"
+            )
         else:
             if self._old_settings is None:
                 raise RuntimeError("RawTerminal disabled before enable()")
