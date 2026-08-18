@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.4] 2026-08-18
+
+### Fixed
+- Windows: `urkit teach` startup failure (`SetConsoleMode failed`). The main loop requested raw console mode with echo still enabled, which some consoles refuse. Raw mode now always disables echo on both platforms; the CLIs render typed input themselves
+- Windows: console mode errors now include the Win32 error code, the operation that failed, and the requested mode, instead of a bare failure message
+
 ## [0.4.3] 2026-08-18
 
 ### Fixed
