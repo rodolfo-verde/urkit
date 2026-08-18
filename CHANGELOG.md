@@ -5,6 +5,11 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+- Windows: `urkit teach` freeze when a fault or RTDE disconnect (e.g. "Reconnecting" after holding a movement key) happened while the main thread was blocked in a robot call. On Windows, Ctrl+C is a raw console byte and no SIGALRM exists, so while blocked, neither the input loops nor the watchdog could react and Ctrl+C was unresponsive. A small Windows-only watcher thread now polls for a Ctrl+C byte (only while no other CLI code is reading input, pushing any other byte back so nothing is lost) and for the monitor's fault flag, then runs the same cleanup as the SIGINT handler and exits. Linux and macOS behavior is unchanged
+
 ## [0.4.4] 2026-08-18
 
 ### Fixed

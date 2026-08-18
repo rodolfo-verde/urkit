@@ -26,7 +26,9 @@ import yaml
 from urkit.cli.colors import blue, cyan, dim, green, red, yellow
 from urkit.cli.terminal import (
     RawTerminal,
+    input_active,
     read_burst,
+    start_interrupt_watcher,
     wait_input,
     warn_if_windows,
 )
@@ -475,6 +477,7 @@ def _read_input(prompt: str, max_len: int = 30) -> str | None:
     sys.stdout.flush()
 
     name = ""
+    input_active.set()
     try:
         while True:
             if not wait_input(0.1):
@@ -511,6 +514,7 @@ def _read_input(prompt: str, max_len: int = 30) -> str | None:
                 break
     finally:
         raw.disable()
+        input_active.clear()
 
     sys.stdout.write("\r\033[K\n")
     sys.stdout.flush()
@@ -624,7 +628,11 @@ def _filter_select_points(
 
             # Wait for input, then read the full burst (e.g. the
             # 3-byte \x1b[A arrow-key sequence) in one go.
-            raw_bytes = read_burst(0.1)
+            input_active.set()
+            try:
+                raw_bytes = read_burst(0.1)
+            finally:
+                input_active.clear()
             if not raw_bytes:
                 if _cli_monitor and _cli_monitor.fault_detected:
                     raise URKitConnectionError(
@@ -739,11 +747,15 @@ def _submenu_goto_point(
                 robot, name, mode_label, start_pose, target_pose, is_cartesian, max_progress
             )
             max_progress = pct
-            if wait_input(0.05):
-                key = read_burst(0.0).decode("ascii", errors="replace")
-                if " " in key:  # Space to cancel
-                    cancelled = True
-                    break
+            input_active.set()
+            try:
+                if wait_input(0.05):
+                    key = read_burst(0.0).decode("ascii", errors="replace")
+                    if " " in key:  # Space to cancel
+                        cancelled = True
+                        break
+            finally:
+                input_active.clear()
 
         # Clear moving screen
         sys.stdout.write("\033[2J\033[1;1H")
@@ -903,7 +915,11 @@ def _submenu_orient_tcp(
                 sys.stdout.flush()
                 needs_redraw = False
 
-            raw_bytes = read_burst(0.1)
+            input_active.set()
+            try:
+                raw_bytes = read_burst(0.1)
+            finally:
+                input_active.clear()
             if not raw_bytes:
                 if _cli_monitor and _cli_monitor.fault_detected:
                     raise URKitConnectionError(
@@ -1022,7 +1038,11 @@ def _submenu_freedrive_axes(
                 sys.stdout.flush()
                 needs_redraw = False
 
-            raw_bytes = read_burst(0.1)
+            input_active.set()
+            try:
+                raw_bytes = read_burst(0.1)
+            finally:
+                input_active.clear()
             if not raw_bytes:
                 continue
             text = raw_bytes.decode("ascii", errors="replace")
@@ -1183,12 +1203,12 @@ def _teach_pendant(
         print("Error: stdin is not a terminal. Run from an interactive shell.")
         sys.exit(1)
 
-    # SIGINT handler: restore terminal and exit when Ctrl+C pressed.
-    # On Unix, raw mode keeps ISIG enabled, so Ctrl+C generates SIGINT.
-    # On Windows, Ctrl+C arrives as a raw 0x03 byte instead (handled by
-    # the main loop's exit key path). os._exit() works even when blocked
+    # Best-effort robot stop and terminal restore, then exit.
+    # Runs from the SIGINT handler (Unix Ctrl+C) and from the
+    # interrupt watcher (Windows Ctrl+C / fault while the main thread
+    # is blocked in a robot call). os._exit() works even when blocked
     # in C library code.
-    def _sigint_handler(signum: int, frame: object) -> None:
+    def _interrupt_exit(reason: str) -> None:
         try:
             if state["freedrive"]:
                 robot.disable_freedrive()
@@ -1207,8 +1227,15 @@ def _teach_pendant(
             _restore_terminal()
         except Exception:
             pass
-        sys.stderr.write("\nInterrupted.\n")
+        sys.stderr.write(f"\n{reason}\n")
         os._exit(0)
+
+    # SIGINT handler: restore terminal and exit when Ctrl+C pressed.
+    # On Unix, raw mode keeps ISIG enabled, so Ctrl+C generates SIGINT.
+    # On Windows, Ctrl+C arrives as a raw 0x03 byte instead (handled by
+    # the main loop's exit key path and the interrupt watcher).
+    def _sigint_handler(signum: int, frame: object) -> None:
+        _interrupt_exit("Interrupted.")
 
     signal.signal(signal.SIGINT, _sigint_handler)
 
@@ -1225,6 +1252,21 @@ def _teach_pendant(
     global _cli_monitor
     _cli_monitor = monitor  # used by _read_input and _filter_select_points
 
+    # Windows escape hatch: no SIGINT delivery and no SIGALRM, so while
+    # the main thread is blocked in a long RTDE call (e.g. a move while
+    # a key is held) neither Ctrl+C (a console byte) nor a detected
+    # fault can reach it. The watcher fires the same cleanup and exit.
+    def _watcher_fault_reason() -> str | None:
+        if monitor.fault_detected:
+            return (
+                f"Robot fault detected: "
+                f"{monitor._reason or 'RTDE connection lost'}. "
+                "RTDE connection lost."
+            )
+        return None
+
+    start_interrupt_watcher(_interrupt_exit, _watcher_fault_reason)
+
     try:
         try:
             _configure_terminal()
@@ -1239,33 +1281,40 @@ def _teach_pendant(
                 command_handled = False
 
                 # --- Wait for a key ---
-                while True:
-                    if wait_input(0.05):
-                        break
+                # input_active tells the Windows interrupt watcher to
+                # stay out of the console queue while we read.
+                input_active.set()
+                try:
+                    while True:
+                        if wait_input(0.05):
+                            break
 
-                    # Periodic refresh while in freedrive — robot may be moving by hand
-                    if state["freedrive"]:
-                        now = time.monotonic()
-                        if now - last_refresh >= _FREEDRIVE_REFRESH_S:
-                            last_refresh = now
-                            _draw_screen(robot, state, messages, expert_mode)
+                        # Periodic refresh while in freedrive — robot may be moving by hand
+                        if state["freedrive"]:
+                            now = time.monotonic()
+                            if now - last_refresh >= _FREEDRIVE_REFRESH_S:
+                                last_refresh = now
+                                _draw_screen(robot, state, messages, expert_mode)
 
-                    # Check for fault detected by watchdog thread
-                    if monitor.fault_detected:
-                        raise URKitConnectionError(
-                            f"Robot fault detected: {monitor._reason or 'RTDE connection lost'}. "
-                            "RTDE connection lost."
-                        )
+                        # Check for fault detected by watchdog thread
+                        if monitor.fault_detected:
+                            raise URKitConnectionError(
+                                f"Robot fault detected: {monitor._reason or 'RTDE connection lost'}. "
+                                "RTDE connection lost."
+                            )
 
-                # --- Read key, draining buffered repeats ---
-                # When a key is held, the terminal auto-repeats it into the
-                # input buffer.  Reading only one character leaves stale repeats
-                # behind — when the user switches from one movement key to
-                # another, the last buffered copy of the old key fires one final
-                # move in the wrong direction before the new key is read.
-                # Fix: drain all immediately available bytes
-                # (non-blocking) and use the last one.
-                key_text = read_burst(0.0).decode("ascii", errors="replace")
+                    # --- Read key, draining buffered repeats ---
+                    # When a key is held, the terminal auto-repeats it into the
+                    # input buffer.  Reading only one character leaves stale
+                    # repeats behind — when the user switches from one
+                    # movement key to another, the last buffered copy of the
+                    # old key fires one final move in the wrong direction
+                    # before the new key is read.
+                    # Fix: drain all immediately available bytes
+                    # (non-blocking) and use the last one.
+                    key_text = read_burst(0.0).decode("ascii", errors="replace")
+                finally:
+                    input_active.clear()
                 key = key_text[-1].lower() if key_text else ""
                 if not key:
                     continue

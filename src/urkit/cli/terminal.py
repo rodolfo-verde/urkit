@@ -30,8 +30,9 @@ from __future__ import annotations
 import ctypes
 import os
 import sys
+import threading
 import time
-from typing import Any
+from typing import Any, Callable
 
 if sys.platform == "win32":
     import msvcrt
@@ -124,6 +125,74 @@ if sys.platform == "win32":
             )
         except OSError:
             pass
+
+
+input_active = threading.Event()
+"""Set while CLI code is actively reading stdin (input-wait loops, text
+prompts, menus). The Windows interrupt watcher stays out of the console
+input queue while this is set, so it can never steal a keystroke from
+the main reader. Callers set it around their read sections and clear it
+afterwards."""
+
+
+def start_interrupt_watcher(
+    on_fire: Callable[[str], None],
+    fault_reason: Callable[[], str | None],
+) -> threading.Thread | None:
+    """Start the Windows-only interrupt watcher. Returns None elsewhere.
+
+    On Windows, while the main thread is blocked in a long RTDE call
+    (not reading input) nothing can interrupt it: Ctrl+C is a raw
+    console byte that only the input loops read, and there is no
+    SIGALRM. This daemon thread covers that gap. It polls, only while
+    input_active is clear:
+
+    - fault_reason() for a connection/robot fault
+    - the console for a Ctrl+C (0x03) byte; any other byte is pushed
+      back with ungetch() so the main reader still sees it, and the
+      watcher backs off to avoid interfering with resumed input
+
+    When either fires it calls on_fire(reason) exactly once; the
+    caller should clean up (stop robot, restore terminal) and exit.
+    """
+    if sys.platform != "win32":
+        return None
+
+    # Only reachable on Windows (guard above), so this never runs on
+    # Linux. Local import because mypy prunes the top-level platform
+    # guard and cannot see the module inside this closure.
+    import msvcrt
+
+    def _run() -> None:
+        backoff = 0.0
+        while True:
+            if backoff > 0:
+                time.sleep(backoff)
+                backoff = 0.0
+            if input_active.is_set():
+                time.sleep(0.05)
+                continue
+            reason = fault_reason()
+            if reason is not None:
+                on_fire(reason)
+                return
+            if not msvcrt.kbhit():
+                time.sleep(0.05)
+                continue
+            byte = msvcrt.getch()
+            if byte == b"\x03":
+                on_fire("Interrupted.")
+                return
+            # Not Ctrl+C: give the byte back and back off so the main
+            # reader (resuming from a blocking call) processes it.
+            msvcrt.ungetch(byte[0])
+            backoff = 0.2
+
+    watcher = threading.Thread(
+        target=_run, daemon=True, name="interrupt-watcher"
+    )
+    watcher.start()
+    return watcher
 
 
 def warn_if_windows() -> None:
