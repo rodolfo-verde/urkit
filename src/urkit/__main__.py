@@ -142,6 +142,14 @@ def main() -> None:
 
 def main_entry() -> None:
     """Entry point for console script."""
+    # A redirected Windows console uses the ANSI code page (cp1252):
+    # unencodable characters (status symbols, log text) must degrade
+    # to '?' instead of crashing the session. TTY consoles are
+    # Unicode-native and unaffected.
+    for stream in (sys.stdout, sys.stderr):
+        reconfigure = getattr(stream, "reconfigure", None)
+        if reconfigure is not None:
+            reconfigure(errors="replace")
     main()
 
 

@@ -142,9 +142,29 @@ without firing, so it cannot race the main thread's cleanup (double
 robot stop, double terminal restore)."""
 
 
+_watcher_thread: threading.Thread | None = None
+"""The running interrupt watcher thread, so stop_interrupt_watcher()
+can join it. A daemon thread that is still alive when the CLI starts
+tearing down the console / interpreter prints the
+'Exception in thread interrupt-watcher' cascade on exit."""
+
+
 def stop_interrupt_watcher() -> None:
-    """Tell the interrupt watcher to exit quietly. No-op on non-Windows."""
+    """Tell the interrupt watcher to exit quietly and wait for it.
+
+    No-op on non-Windows. Joins with a short timeout so the CLI never
+    starts terminal restore or interpreter shutdown while the watcher
+    is still calling into msvcrt. If the join times out (watcher stuck
+    in a console call) the CLI proceeds anyway; the watcher's hardened
+    loop still cannot raise in that case.
+    """
+    global _watcher_thread
     watcher_stop.set()
+    thread = _watcher_thread
+    if thread is not None and thread is not threading.current_thread():
+        thread.join(timeout=1.0)
+    if thread is _watcher_thread:
+        _watcher_thread = None
 
 
 def start_interrupt_watcher(
@@ -167,6 +187,8 @@ def start_interrupt_watcher(
     When either fires it calls on_fire(reason) exactly once; the
     caller should clean up (stop robot, restore terminal) and exit.
     """
+    global _watcher_thread
+
     if sys.platform != "win32":
         return None
 
@@ -191,45 +213,61 @@ def start_interrupt_watcher(
         sys.stderr.flush()
 
     def _run() -> None:
-        backoff = 0.0
-        while not watcher_stop.is_set():
-            if backoff > 0:
-                time.sleep(backoff)
-                backoff = 0.0
-            if input_active.is_set():
-                time.sleep(0.05)
-                continue
-            reason = fault_reason()
-            if reason is not None:
-                _where_blocked()
-                on_fire(reason)
-                return
-            try:
-                if not msvcrt.kbhit():
+        # Snapshot the module globals the loop touches. During
+        # interpreter shutdown module dicts are torn down; reading a
+        # global that is gone turns this dying thread into a traceback
+        # that races the main thread's exit.
+        stop = watcher_stop
+        active = input_active
+        try:
+            backoff = 0.0
+            while not stop.is_set():
+                if backoff > 0:
+                    time.sleep(backoff)
+                    backoff = 0.0
+                if active.is_set():
                     time.sleep(0.05)
                     continue
-                byte = msvcrt.getch()
-            except OSError:
-                # Console is closing (shutdown in progress). The watcher
-                # is best-effort; exit quietly instead of dying with a
-                # traceback that races the main thread's exit.
-                return
-            if byte == b"\x03":
-                _where_blocked()
-                on_fire("Interrupted.")
-                return
-            # Not Ctrl+C: give the byte back and back off so the main
-            # reader (resuming from a blocking call) processes it.
-            try:
-                msvcrt.ungetch(byte[0])
-            except OSError:
-                return
-            backoff = 0.2
+                reason = fault_reason()
+                if reason is not None:
+                    _where_blocked()
+                    on_fire(reason)
+                    return
+                try:
+                    if not msvcrt.kbhit():
+                        time.sleep(0.05)
+                        continue
+                    byte = msvcrt.getch()
+                except OSError:
+                    # Console is closing (shutdown in progress). The
+                    # watcher is best-effort; exit quietly instead of
+                    # dying with a traceback that races the main
+                    # thread's exit.
+                    return
+                if byte == b"\x03":
+                    _where_blocked()
+                    on_fire("Interrupted.")
+                    return
+                # Not Ctrl+C: give the byte back and back off so the
+                # main reader (resuming from a blocking call) processes
+                # it.
+                try:
+                    msvcrt.ungetch(byte[0])
+                except OSError:
+                    return
+                backoff = 0.2
+        except BaseException:
+            # The watcher is best-effort. Never let it raise, even
+            # during shutdown: an uncaught thread exception here is
+            # what produces the 'Exception in thread interrupt-watcher'
+            # / 'Exception in threading.excepthook' cascade on exit.
+            return
 
     watcher = threading.Thread(
         target=_run, daemon=True, name="interrupt-watcher"
     )
     watcher.start()
+    _watcher_thread = watcher
     return watcher
 
 
@@ -387,3 +425,120 @@ def read_burst(timeout: float) -> bytes:
     if not wait_input(timeout):
         return b""
     return os.read(sys.stdin.fileno(), 64)
+
+
+# Final bytes that terminate a CSI sequence (0x40-0x7E).
+_CSI_FINAL = frozenset(chr(c) for c in range(0x40, 0x7F))
+_ESC_GRACE_S = 0.03
+"""Grace period to decide between a bare ESC press and the first byte
+of an escape sequence whose tail has not arrived yet. The Windows
+console delivers whole sequences in one burst, so this path mostly
+matters on Unix terminals under load."""
+_escape_tail = ""
+"""Leftover bytes of a split escape sequence from the previous burst.
+A terminal can split a CSI sequence across two reads; without the
+carry, the tail (e.g. '[A') would be parsed as ordinary characters."""
+
+
+def _consume_escape(text: str, pos: int) -> tuple[int, bool]:
+    """Parse the escape sequence starting at text[pos] ('\\x1b').
+
+    Returns (end, bare): end is the index just past the complete
+    sequence, or -1 when the burst ends mid-sequence. end == 1 with
+    bare True is a single ESC byte, which at the tail of a burst is
+    ambiguous (real ESC press vs first byte of a split sequence) and
+    resolved by the caller with a grace wait.
+    """
+    n = len(text)
+    if pos + 1 >= n:
+        return pos + 1, True  # ESC at the tail of the burst
+    if text[pos + 1] == "O":
+        if pos + 2 >= n:
+            return -1, False  # SS3 fragment
+        return pos + 3, False
+    if text[pos + 1] == "[":
+        j = pos + 2
+        while j < n and text[j] not in _CSI_FINAL:
+            j += 1
+        if j >= n:
+            return -1, False  # CSI fragment
+        return j + 1, False
+    # ESC not starting a known sequence: bare ESC; the byte that
+    # follows is parsed as its own character.
+    return pos + 1, True
+
+
+def read_chars(timeout: float) -> list[str]:
+    """Read input for up to timeout and return the logical characters.
+
+    Complete ANSI escape sequences are dropped (arrow keys, Home/End,
+    PageUp/Down, F keys, ...): both the Windows console and Unix
+terminals report an arrow key as the 3-byte CSI sequence \\x1b[A, so
+iterating raw bytes would treat its ESC byte as a cancel press and its
+final byte as an ordinary key (an up-arrow would fire the 'a' move
+handler, a down-arrow the 'b' save-point handler). A real ESC press is
+kept, because the CLIs use it as the cancel/exit key, and it is
+disambiguated from a split sequence with a short grace wait.
+    """
+    global _escape_tail
+    text = _escape_tail + read_burst(timeout).decode("ascii", errors="replace")
+    _escape_tail = ""
+    if not text:
+        return []
+    out: list[str] = []
+    i = 0
+    while True:
+        n = len(text)
+        while i < n:
+            if text[i] != "\x1b":
+                out.append(text[i])
+                i += 1
+                continue
+            end, bare = _consume_escape(text, i)
+            if end == 1 and bare and i + 1 >= n:
+                break  # ESC at the burst tail: ambiguous, grace wait
+            if end >= 1:
+                if end == 1:
+                    out.append("\x1b")  # bare ESC, not at the tail
+                # else: complete sequence, drop it
+                i = end
+                continue
+            break  # fragment at the tail: grace wait below
+        if i >= n:
+            break
+        fragment = text[i:]
+        more = read_burst(_ESC_GRACE_S).decode("ascii", errors="replace")
+        if more:
+            combined = fragment + more
+            end, _ = _consume_escape(combined, 0)
+            if end < 0:
+                _escape_tail = combined  # still a fragment: carry on
+                break
+            if end == 1:
+                out.append("\x1b")  # not a sequence: real ESC press
+            text = combined[end:]
+            i = 0
+            continue
+        if fragment == "\x1b":
+            # No continuation arrived: a real ESC press.
+            out.append("\x1b")
+            i += 1
+            continue
+        _escape_tail = fragment
+        break
+    return out
+
+
+def read_key(timeout: float) -> str | None:
+    """Read one key press, for single-key main loops.
+
+    Returns the last logical character of the burst, so a held-key
+    repeat queue resolves to the newest press, or None for no input.
+    Escape sequences never produce a key: an arrow key is \\x1b[A on
+    both Windows and Unix, and taking the burst's last byte would fire
+    the 'a' (move) / 'b' (save point) handlers.
+    """
+    chars = read_chars(timeout)
+    if not chars:
+        return None
+    return chars[-1]

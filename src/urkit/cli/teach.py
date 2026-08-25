@@ -30,6 +30,8 @@ from urkit.cli.terminal import (
     RawTerminal,
     input_active,
     read_burst,
+    read_chars,
+    read_key,
     start_interrupt_watcher,
     stop_interrupt_watcher,
     wait_input,
@@ -257,6 +259,35 @@ def _draw_moving_screen(
     return pct, bar
 
 
+def _message_line(msg: str, width: int) -> str:
+    """Render a status message with severity-based color.
+
+    Red: failures (errors, unreachable targets, invalid input, failed
+    operations). Yellow: soft warnings (cancellations, missing points
+    or capabilities). Green: completed actions. Everything else stays
+    plain so the red failures stand out.
+    """
+    low = msg.lower()
+    text = msg[:width - 4]
+    if (
+        "error" in low
+        or "failed" in low
+        or low.startswith("unreachable")
+        or low.startswith("invalid")
+    ):
+        return f"  {red(text)}"
+    if low.startswith(("saved", "moved", "deleted", "renamed")):
+        return f"  {green(text)}"
+    if (
+        "cancelled" in low
+        or "not available" in low
+        or "unavailable" in low
+        or low.startswith("no ")
+    ):
+        return f"  {yellow(text)}"
+    return f"  {text}"
+
+
 def _draw_screen(
     robot: URRobot,
     state: dict,
@@ -286,9 +317,9 @@ def _draw_screen(
         max_mm = robot.gripper.max_travel_mm()
         extra = ""
         if hasattr(robot.gripper, '_force'):
-            extra += f" F={robot.gripper._force}"
+            extra += f" F={robot.gripper._force}{dim('[7]')}"
         if hasattr(robot.gripper, '_speed'):
-            extra += f" S={robot.gripper._speed}"
+            extra += f" S={robot.gripper._speed}{dim('[6]')}"
         if pos_mm is not None and max_mm is not None and max_mm > 0:
             pct = int((max_mm - pos_mm) / max_mm * 100)
             gripper_state = f"{green('Connected')} {pos_mm:.1f}mm ({pct}%)" + extra
@@ -349,9 +380,12 @@ def _draw_screen(
             )
         else:
             label = mode.name
-        lines.append(f" {blue('Freedrive:'.ljust(lw))} {green('ON')} ({label})")
+        lines.append(
+            f" {blue('Freedrive:'.ljust(lw))} {green('ON')} ({label}) "
+            f"{dim('[3: select axes]')}"
+        )
     else:
-        lines.append(f" {blue('Freedrive:'.ljust(lw))} {red('OFF')} {dim('[F: cycle ALL/XYZ]')}")
+        lines.append(f" {blue('Freedrive:'.ljust(lw))} {red('OFF')} {dim('[F: OFF/ALL/XYZ]')}")
     slider_pct = int(state["speed_slider"] * 100)
     slider_color = green if state["speed_slider"] >= 0.5 else yellow if state["speed_slider"] >= 0.2 else red
     lines.append(f" {blue('Speed:'.ljust(lw))} {slider_color(f'{slider_pct}%')} {dim('[0: set]')}")
@@ -367,15 +401,7 @@ def _draw_screen(
 
     # Status message line (only when there's something to show)
     if messages:
-        status_msg = messages[-1][:width - 4]
-        if status_msg.startswith("Error"):
-            lines.append(f"  {red(status_msg)}")
-        elif status_msg.startswith("Saved") or status_msg.startswith("Moved") or status_msg.startswith("Deleted") or status_msg.startswith("Renamed"):
-            lines.append(f"  {green(status_msg)}")
-        elif status_msg == "Cancelled":
-            lines.append(f"  {yellow(status_msg)}")
-        else:
-            lines.append(f"  {status_msg}")
+        lines.append(_message_line(messages[-1], width))
 
     lines.append(dim("-" * width))
 
@@ -383,9 +409,10 @@ def _draw_screen(
     lines.append(f"  {yellow('MOVE:')}    {yellow('W/S')}: ±X  {yellow('A/D')}: ±Y  {yellow('Q/E')}: ±Z")
     lines.append(f"  {yellow('ORIENT:')}  {yellow('U/O')}: ±Roll  {yellow('I/K')}: ±Pitch  {yellow('J/L')}: ±Yaw")
     lines.append(f"  {yellow('STEP:')}    {yellow('1')}: Linear (mm)  {yellow('2')}: Angular (°)  {yellow('.')}: Reset")
-    lines.append(f"  {yellow('GRIPPER:')} {yellow('X')}: Open  {yellow('C')}: Close  {yellow('V')}: Position  {yellow('6')}: Speed  {yellow('7')}: Force")
+    if robot.gripper is not None:
+        lines.append(f"  {yellow('GRIPPER:')} {yellow('X')}: Open  {yellow('C')}: Close  {yellow('V')}: Position")
     lines.append(f"  {yellow('POINTS:')}  {yellow('B')}: Save  {yellow('G')}: Go To  {yellow('H')}: Delete  {yellow('R')}: Rename  {yellow('P')}: Explorer")
-    lines.append(f"  {yellow('OTHER:')}   {yellow('F')}: Freedrive  {yellow('3')}: Axes  {yellow('M')}: Frame  {yellow('N')}: GoTo  {yellow('T')}: TCP")
+    lines.append(f"  {yellow('OTHER:')}   {yellow('F')}: Freedrive  {yellow('3')}: Axes  {yellow('M')}: Frame  {yellow('N')}: Cart/Joint  {yellow('T')}: TCP")
     lines.append(f"  {yellow('      ')}   {yellow('0')}: Speed  {yellow('Y')}: Save Config")
     lines.append(f"  {yellow('EXIT:')}    {yellow('ESC')}")
     lines.append(dim("=" * width))
@@ -425,7 +452,7 @@ def _draw_help() -> None:
     lines.append("")
     lines.append("  POINTS:")
     lines.append("    B      → Save current pose")
-    lines.append("    G      → Go to saved point (ask cartesian/joint)")
+    lines.append("    G      → Go to saved point (cartesian/joint via N)")
     lines.append("    H      → Delete saved point")
     lines.append("    R      → Rename saved point")
     lines.append("    P      → Open points explorer")
@@ -491,11 +518,15 @@ def _read_input(prompt: str, max_len: int = 30) -> str | None:
                         "RTDE connection lost."
                     )
                 continue
-            text = read_burst(0.0).decode("ascii", errors="replace")
-            if not text:
+            # read_chars() drops ANSI escape sequences (an arrow key is
+            # the 3-byte CSI sequence \x1b[A on both Windows and Unix):
+            # without this, its ESC byte would cancel the line while
+            # the user only meant to move the cursor.
+            chars = read_chars(0.0)
+            if not chars:
                 continue
             done = False
-            for ch in text:
+            for ch in chars:
                 if ch == "\x1b" or ch == "\x03":  # ESC or Ctrl+C → cancel
                     sys.stdout.write("\033[K")
                     sys.stdout.flush()
@@ -999,23 +1030,56 @@ def _submenu_orient_tcp(
 _FD_AXIS_LABELS = ["X", "Y", "Z", "Roll", "Pitch", "Yaw"]
 
 
+def _next_freedrive_step(state: dict) -> tuple[bool, object]:
+    """Compute the F-key freedrive cycle step.
+
+    The cycle is OFF -> ALL (or the last custom axes set via the 3
+    submenu) -> XYZ -> OFF. Returns (should_disable, mode_to_enable):
+    should_disable True means the next press turns freedrive off;
+    otherwise mode_to_enable is the mode to switch to.
+    """
+    if not state.get("freedrive"):
+        return False, state.get("_fd_custom_axes") or FreedriveMode.ALL
+    if state.get("freedrive_mode") == FreedriveMode.ALL:
+        return False, FreedriveMode.XYZ
+    # XYZ, ROTATION, or a custom axis list: next press turns it off.
+    return True, None
+
+
+def _initial_freedrive_axes(state: dict) -> list[int]:
+    """Axes as the picker opens them.
+
+    Live edit (freedrive on) starts from the active mode's axes. When
+    freedrive is off the picker starts fully locked, so Enter enables
+    exactly the axes the user turned on, with no stale checks.
+    """
+    if not state.get("freedrive"):
+        return [0, 0, 0, 0, 0, 0]
+    current_mode = state.get("freedrive_mode", FreedriveMode.ALL)
+    if current_mode == FreedriveMode.ALL:
+        return [1, 1, 1, 1, 1, 1]
+    if current_mode == FreedriveMode.XYZ:
+        return [1, 1, 1, 0, 0, 0]
+    if current_mode == FreedriveMode.ROTATION:
+        return [0, 0, 0, 1, 1, 1]
+    if isinstance(current_mode, list):
+        return list(current_mode)
+    return [1, 1, 1, 1, 1, 1]
+
+
 def _submenu_freedrive_axes(
     robot: URRobot,
     state: dict,
     messages: list[str],
 ) -> None:
-    """Interactive submenu to toggle individual freedrive axes."""
-    current_mode = state.get("freedrive_mode", FreedriveMode.ALL)
-    if current_mode == FreedriveMode.ALL:
-        axes = [1, 1, 1, 1, 1, 1]
-    elif current_mode == FreedriveMode.XYZ:
-        axes = [1, 1, 1, 0, 0, 0]
-    elif current_mode == FreedriveMode.ROTATION:
-        axes = [0, 0, 0, 1, 1, 1]
-    elif isinstance(current_mode, list):
-        axes = list(current_mode)
-    else:
-        axes = [1, 1, 1, 1, 1, 1]
+    """Interactive submenu to toggle individual freedrive axes.
+
+    Enter enables freedrive with the selected axes in both states:
+    live re-apply (disable + re-enable) when already active, direct
+    enable when off (the picker opens fully locked, so the user
+    chooses exactly what gets enabled).
+    """
+    axes = _initial_freedrive_axes(state)
 
     cursor = 0
     raw = RawTerminal()
@@ -1030,7 +1094,7 @@ def _submenu_freedrive_axes(
             if needs_redraw:
                 sys.stdout.write("\033[2J\033[1;1H")
                 sys.stdout.write(cyan("  === FREEDRIVE AXES ===") + "\n")
-                sys.stdout.write(dim("  Arrows navigate · Space toggle · Enter apply · ESC cancel") + "\n\n")
+                sys.stdout.write(dim("  Arrows move · Space toggle · L/U lock/unlock all · Enter · ESC") + "\n\n")
                 sys.stdout.write("  " + dim("─" * 40) + "\n")
 
                 for i, label in enumerate(_FD_AXIS_LABELS):
@@ -1074,6 +1138,12 @@ def _submenu_freedrive_axes(
                 if ch == " ":
                     axes[cursor] = 1 - axes[cursor]
                     changed = True
+                elif ch == "l":
+                    axes = [0, 0, 0, 0, 0, 0]
+                    changed = True
+                elif ch == "u":
+                    axes = [1, 1, 1, 1, 1, 1]
+                    changed = True
                 elif ch == "\n" or ch == "\r":
                     applied = True
                 elif ch == "\x03":
@@ -1090,16 +1160,18 @@ def _submenu_freedrive_axes(
         messages.append("Cancelled — at least 1 axis must be active")
         return
 
+    label = "+".join(_FD_AXIS_LABELS[i] for i, v in enumerate(axes) if v)
     try:
-        robot.disable_freedrive()
-        time.sleep(0.2)
+        if state.get("freedrive"):
+            robot.disable_freedrive()
+            time.sleep(0.2)
         robot.enable_freedrive(axes)
-        state["freedrive_mode"] = axes
-        state["_fd_custom_axes"] = list(axes)
-        label = "+".join(_FD_AXIS_LABELS[i] for i, v in enumerate(axes) if v)
+        state["freedrive"] = True
         messages.append(f"Freedrive axes: {label}")
     except MotionError as e:
         messages.append(f"Freedrive error: {e}")
+    state["freedrive_mode"] = axes
+    state["_fd_custom_axes"] = list(axes)
 
 
 # ------------------------------------------------------------------
@@ -1198,6 +1270,25 @@ def _teach_pendant(
     _log_handler.setLevel(logging.WARNING)
     _log_handler.setFormatter(logging.Formatter("%(message)s"))
     _urkit_logger.addHandler(_log_handler)
+
+    # Diagnostic capture: URKIT_LOG_FILE=<path> tees the full urkit
+    # debug log (move failures with tracebacks, connection state) to a
+    # file for post-mortem. Off unless the env var is set.
+    _log_file_handler = None
+    _log_file = os.environ.get("URKIT_LOG_FILE")
+    if _log_file:
+        try:
+            _log_file_handler = logging.FileHandler(_log_file)
+            _log_file_handler.setLevel(logging.DEBUG)
+            _log_file_handler.setFormatter(
+                logging.Formatter(
+                    "%(asctime)s %(name)s %(levelname)s %(message)s"
+                )
+            )
+            _urkit_logger.addHandler(_log_file_handler)
+            _urkit_logger.setLevel(logging.DEBUG)
+        except OSError:
+            _log_file_handler = None
 
     delta_keys = ("w", "s", "a", "d", "q", "e", "u", "o", "i", "j", "k", "l")
 
@@ -1313,16 +1404,20 @@ def _teach_pendant(
                     # --- Read key, draining buffered repeats ---
                     # When a key is held, the terminal auto-repeats it into the
                     # input buffer.  Reading only one character leaves stale
-                    # repeats behind — when the user switches from one
+                    # repeats behind: when the user switches from one
                     # movement key to another, the last buffered copy of the
                     # old key fires one final move in the wrong direction
                     # before the new key is read.
                     # Fix: drain all immediately available bytes
                     # (non-blocking) and use the last one.
-                    key_text = read_burst(0.0).decode("ascii", errors="replace")
+                    # read_key() also consumes ANSI escape sequences: an
+                    # arrow key is the 3-byte CSI sequence \x1b[A on both
+                    # Windows and Unix, and taking the burst's last byte
+                    # would fire the 'a' (move) or 'b' (save point) key.
+                    key = read_key(0.0)
                 finally:
                     input_active.clear()
-                key = key_text[-1].lower() if key_text else ""
+                key = key.lower() if key else ""
                 if not key:
                     continue
 
@@ -1410,35 +1505,31 @@ def _teach_pendant(
                     messages.append("Step sizes reset to defaults")
                     command_handled = True
 
-                # --- Freedrive (quick cycle: ALL ↔ XYZ) ---
+                # --- Freedrive (cycle: OFF -> ALL -> XYZ -> OFF) ---
                 elif key == "f":
-                    if not state["freedrive"]:
-                        try:
-                            mode = state.get("_fd_custom_axes") or FreedriveMode.ALL
-                            robot.enable_freedrive(mode)
-                            state["freedrive"] = True
-                            state["freedrive_mode"] = mode
-                        except MotionError as e:
-                            messages.append(f"Freedrive error: {e}")
-                    else:
-                        # Toggle between ALL and XYZ
-                        next_mode = FreedriveMode.XYZ if state["freedrive_mode"] == FreedriveMode.ALL else FreedriveMode.ALL
-                        try:
+                    should_disable, next_mode = _next_freedrive_step(state)
+                    try:
+                        if should_disable:
                             robot.disable_freedrive()
-                            time.sleep(0.2)
+                            state["freedrive"] = False
+                            state.pop("_fd_custom_axes", None)
+                        else:
+                            if state["freedrive"]:
+                                robot.disable_freedrive()
+                                time.sleep(0.2)
                             robot.enable_freedrive(next_mode)
+                            state["freedrive"] = True
                             state["freedrive_mode"] = next_mode
                             state.pop("_fd_custom_axes", None)
-                        except MotionError as e:
-                            messages.append(f"Freedrive error: {e}")
+                    except MotionError as e:
+                        messages.append(f"Freedrive error: {e}")
                     command_handled = True
 
                 # --- Freedrive axis selection menu ---
                 elif key == "3":
-                    if state["freedrive"]:
-                        _submenu_freedrive_axes(robot, state, messages)
-                    else:
-                        messages.append("Freedrive must be on first (press F)")
+                    # Enter enables freedrive with the picked axes in
+                    # both states (live re-apply when already on).
+                    _submenu_freedrive_axes(robot, state, messages)
                     command_handled = True
 
                 # --- Frame toggle ---
@@ -1596,6 +1687,10 @@ def _teach_pendant(
 
     finally:
         _urkit_logger.removeHandler(_log_handler)
+        if _log_file_handler is not None:
+            _urkit_logger.removeHandler(_log_file_handler)
+            _log_file_handler.close()
+        _urkit_logger.setLevel(logging.WARNING)
         _urkit_logger.propagate = True
         # Restore terminal
         try:
@@ -1759,7 +1854,12 @@ def teach_command(args) -> None:
     except KeyboardInterrupt:
         pass
     finally:
-        # Stop any running program on the robot
+        # Stop the RTDE control script first (clean stop). If it reports
+        # "script is not running", that is diagnostic: the script died
+        # mid-session (e.g. during idle) and the capture log shows when.
+        # Then stop any remaining program via the dashboard and release
+        # the RTDE connections.
+        robot.disconnect()
         try:
             s = _connect_dashboard(robot.ip, timeout=5.0)
             try:
@@ -1769,7 +1869,6 @@ def teach_command(args) -> None:
             s.close()
         except ConnectionError:
             pass
-        robot.disconnect()
 
 
 

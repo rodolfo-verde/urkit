@@ -22,25 +22,65 @@ from urkit.exceptions import MotionError
 from urkit.geometry import MoveFrame, transform_pose_delta
 
 
+_DEFAULT_STDERR_LOG = "urkit_rtde_stderr.log"
+"""Where ur_rtde C++ stderr is captured when URKIT_RTDE_STDERR is not
+set (CWD, append mode). Move failures are reported by the C++ layer
+only on raw stderr, so this file is the only record of why a move was
+rejected."""
+
+
+def _emit_captured_stderr(captured: str, capture_path: str) -> None:
+    """Surface stderr captured from the ur_rtde C++ layer.
+
+    The C++ layer's error text ("RTDE control script is not running!",
+    "Lost connection to robot...", boost socket errors, "Robot is
+    disconnected, reconnecting...") used to be discarded, which made
+    move failures impossible to diagnose. Re-emit it at WARNING so it
+    shows on the pendant screen and in application logs.
+
+    Args:
+        captured: Text written to fd 2 during the native call.
+        capture_path: File the text was appended to.
+    """
+    text = captured.strip()
+    if not text:
+        return
+    if len(text) > 500:
+        text = text[:500] + "..."
+    logger.warning(
+        "ur_rtde C++ layer reported: %s (full output: %s)",
+        text.replace("\n", " | "),
+        capture_path,
+    )
+
+
 @contextmanager
 def _suppress_rtde_stderr() -> Iterator[None]:
-    """Temporarily redirect stderr to /dev/null.
+    """Capture raw stderr (fd 2) around a native ur_rtde call.
 
-    The ur_rtde C++ library prints "RTDE control script is not running!"
-    to raw stderr (fd 2) on every call when the script is stopped.
-    This context manager suppresses those messages by redirecting fd 2
-    around the call.
+    The ur_rtde C++ library writes its error output to raw stderr (fd
+    2). It is captured to a file instead of the console (which would
+    corrupt the pendant's rendered screen) and re-emitted through the
+    urkit logger, so failures surface instead of vanishing:
 
-    Diagnostic: set URKIT_RTDE_STDERR=<path> to capture the suppressed
-    output in a file (append mode) instead. ur_rtde move failures are
-    reported there and nowhere else, so this is the only way to see
-    why a move was rejected.
+    - URKIT_RTDE_STDERR=<path> captures to that path (diagnostic mode).
+    - Otherwise capture goes to urkit_rtde_stderr.log in the CWD.
     """
-    capture_path = os.environ.get("URKIT_RTDE_STDERR")
-    if capture_path:
+    capture_path = os.environ.get("URKIT_RTDE_STDERR") or _DEFAULT_STDERR_LOG
+    try:
         target_fd = os.open(capture_path, os.O_WRONLY | os.O_CREAT | os.O_APPEND)
-    else:
+    except OSError:
+        # Capture path not writable (read-only CWD etc.): fall back to
+        # discarding rather than breaking the motion call itself.
         target_fd = os.open(os.devnull, os.O_WRONLY)
+        capture_path = os.devnull
+
+    size_before = 0
+    try:
+        size_before = os.fstat(target_fd).st_size
+    except OSError:
+        pass
+
     old_stderr = os.dup(2)
     try:
         os.dup2(target_fd, 2)
@@ -49,6 +89,15 @@ def _suppress_rtde_stderr() -> Iterator[None]:
     finally:
         os.dup2(old_stderr, 2)
         os.close(old_stderr)
+        captured = ""
+        try:
+            if capture_path != os.devnull:
+                with open(capture_path, "r", errors="replace") as f:
+                    f.seek(size_before)
+                    captured = f.read()
+            _emit_captured_stderr(captured, capture_path)
+        except OSError:
+            pass
         os.close(target_fd)
 
 if TYPE_CHECKING:
@@ -172,7 +221,8 @@ class Motion:
             raise
         except Exception as e:
             raise MotionError(
-                f"Joint move failed: {e}"
+                f"Joint move failed: {e} "
+                f"(RTDE control connected: {self._rtde_c.isConnected()})"
             )
 
     def movel(
@@ -225,7 +275,8 @@ class Motion:
             raise
         except Exception as e:
             raise MotionError(
-                f"Linear move failed: {e}"
+                f"Linear move failed: {e} "
+                f"(RTDE control connected: {self._rtde_c.isConnected()})"
             )
 
     def move_by(
@@ -284,7 +335,8 @@ class Motion:
             raise
         except Exception as e:
             raise MotionError(
-                f"Relative move failed: {e}"
+                f"Relative move failed: {e} "
+                f"(RTDE control connected: {self._rtde_c.isConnected()})"
             )
 
     def zero_ft_sensor(self) -> None:

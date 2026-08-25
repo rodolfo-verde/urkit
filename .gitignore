@@ -26,6 +26,9 @@ Thumbs.db
 config.yaml
 *.db
 
+# Logs
+*.log
+
 # AI assistant configs
 AGENTS.md
 .claude/

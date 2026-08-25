@@ -911,8 +911,32 @@ Full `ur_rtde` documentation: <https://sdurobotics.gitlab.io/ur_rtde/>
 
 ```python
 robot.connection_lost       # bool: check if RTDE dropped
-robot.reconnect_rtde()      # reconnect after a drop
 ```
+
+An RTDE drop is fatal for the session: urkit raises and the CLI exits.
+Restart `urkit` (or create a new `URRobot`) to reconnect. urkit
+deliberately does not auto-reconnect mid-session: a silent reconnect
+hides what happened to the link and lets the native layer resynchronize
+state behind your back.
+
+**What happens when the link drops mid-session** (verified by
+force-dropping the network with Windows firewall rules):
+
+- **Before a motion call**: every motion command checks the link first
+  and raises `URKitConnectionError` immediately. This matters because a
+  call into the native layer on a dead link would not return an error:
+  the vendored `ur_rtde` library enters its own internal reconnect
+  loop and blocks indefinitely (measured: 45 s+ and still hanging
+  under a firewall block).
+- **While a motion is running**: the CLI's connection monitor detects
+  the drop within ~0.1 s and exits cleanly (interrupt watcher on
+  Windows, SIGALRM on Unix). In library code, an in-flight call can
+  block inside the native reconnect loop; kill the process and restart.
+- **After a hard drop**: the robot can keep the RTDE registers locked
+  until the dead connection times out. If a fresh connect fails with
+  `RtdeRegisterConflictError`, power cycle the controller (dashboard
+  `power off` / `power on` works remotely; or Settings -> System ->
+  Shutdown on the pendant), then reconnect.
 
 ### Error Handling
 

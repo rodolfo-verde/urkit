@@ -5,6 +5,25 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+- Root cause of `stopScript failed: WinError 1` and motion hangs: when the RTDE link drops mid-session, the vendored ur_rtde C++ layer enters an internal reconnect loop, so a motion call blocks inside it (measured 45+ s with the link blocked) and a later call surfaces WinError 1 from the half-rebuilt socket. urkit now fails fast: `_check_connection()` checks the live `isConnected()` state at every motion entry point (it previously only checked a flag nothing set) and raises immediately, and `URRobot.reconnect_rtde()` is removed because a Python-level reconnect races the C++ layer's own loop, which is exactly what created the WinError 1 window. An RTDE drop is now fatal for the session; the README documents the verified behavior and recovery, including a controller power cycle after a hard drop
+- Arrow keys (and Home/End/F keys) no longer fire movement or point keys in the CLIs, on both platforms. The input loops consumed raw burst bytes, so a CSI sequence's ESC byte parsed as a cancel and its final byte as a key (an up arrow fired the 'a' move handler, a down arrow the 'b' save-point handler). `read_chars()`/`read_key()` parse and drop complete escape sequences, keep real ESC presses (with a short grace wait for sequences split across reads), and are used by the main loops, prompts, and submenus
+- Windows: exit-time `Exception in thread interrupt-watcher` cascade. `stop_interrupt_watcher()` now joins the watcher so the CLI never restores the console while it is still inside msvcrt, and the watcher loop snapshots its globals and never raises, even during interpreter shutdown
+- `URRobot.disconnect()` is idempotent: the second call (from `__del__` during interpreter shutdown) is a no-op, so exit cannot double-stop the robot or double-close sockets the C++ layer has already torn down. The teach CLI also stops the RTDE control script (clean stop) before the dashboard program stop on exit
+- Windows: redirected consoles (cp1252) no longer crash with `UnicodeEncodeError` on the `●`/`✓` status symbols; output degrades to `?`
+- Freedrive F key: the cycle was stuck between ALL and XYZ and could never reach OFF. It now cycles OFF -> ALL (or the last custom axes) -> XYZ -> OFF
+- Misleading key hints: `N` now says Cart/Joint instead of GoTo, the gripper speed/force hints sit next to the live values, and the freedrive hints reflect the actual cycle
+
+### Added
+- ur_rtde C++ stderr is captured by default to `urkit_rtde_stderr.log` in the working directory (append) instead of /dev/null, and the captured text is re-emitted as a WARNING, so move failures surface on the pendant screen and in application logs. `URKIT_RTDE_STDERR` still overrides the path
+- `URKIT_LOG_FILE=<path>` tees the full urkit debug log to a file for post-mortem
+- Freedrive axis picker (key 3) works in both states: with freedrive off it opens fully locked and Enter enables exactly the selected axes; with it on, Enter re-applies live. L/U lock/unlock all
+- Status messages are colored by severity: red for failures, yellow for warnings and cancellations, green for completed actions
+- The gripper UI (status extras and key hints) hides when no gripper is configured or active
+- Movement errors include the RTDE control connection state, so a dropped link is identifiable from the message itself
+
 ## [0.4.6] 2026-08-18
 
 ### Fixed

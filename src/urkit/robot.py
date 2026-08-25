@@ -54,7 +54,15 @@ _RESET  = "\033[0m"  if _use_color else ""
 def _status(msg: str, done: bool = False) -> None:
     """Print a status message with color."""
     prefix = _GREEN + "✓ " if done else _YELLOW + "● "
-    print(f"{prefix}{msg}{_RESET}", flush=True)
+    text = f"{prefix}{msg}{_RESET}"
+    try:
+        print(text, flush=True)
+    except UnicodeEncodeError:
+        # stdout is a non-Unicode pipe (e.g. a redirected Windows
+        # console on cp1252): the decorative symbols must degrade to
+        # '?' instead of crashing the connection flow.
+        enc = sys.stdout.encoding or "utf-8"
+        print(text.encode(enc, "replace").decode(enc), flush=True)
 
 
 def _is_pose(v: object) -> bool:
@@ -349,19 +357,23 @@ class URRobot:
             self._gripper.activate()
         except GripperError as e:
             _status(f"Gripper activation failed: {e}", done=False)
-            # Reconnect RTDE to kill the stuck daemon thread — it's blocked
-            # on sendCustomScriptFunction running a 2000-iteration loop on
-            # the robot. Tearing down the socket kills it immediately.
+            # Fail hard: the gripper is disabled for this session. The
+            # activation daemon thread stays blocked in the native
+            # sendCustomScriptFunction call (the robot runs a wait loop
+            # that only ends with a valid gripper response); it is a
+            # daemon, so it exits with the process. No silent
+            # reconnection: restart urkit to retry with a working
+            # gripper.
             _gripper = self._gripper
             self._gripper = None
             try:
                 _gripper.disconnect()
             except Exception:
                 pass
-            try:
-                self.reconnect_rtde()
-            except ConnectionError:
-                logger.warning("Failed to reconnect RTDE after gripper timeout")
+            logger.warning(
+                "Gripper disabled for this session after activation "
+                "failure. Restart urkit to retry with a connected gripper."
+            )
             return False
 
         return True
@@ -2099,84 +2111,43 @@ class URRobot:
     # ------------------------------------------------------------------
 
     def _check_connection(self) -> None:
-        """Verify RTDE connection is still alive before motion."""
+        """Verify RTDE connection is still alive before motion.
+
+        Checks both the session flag (once set, the session is dead for
+        good) and the live state of the C++ control socket. A call into
+        the C++ layer on a dead link does not return an error: the
+        vendored ur_rtde library enters an internal reconnect loop and
+        blocks indefinitely (verified: 45+ s under a firewall block,
+        and the next control send can surface WinError 1 from a
+        half-rebuilt socket). Failing here keeps those cases fast and
+        actionable instead of hung.
+        """
         if self._connection_lost:
             raise ConnectionError(
                 "RTDE connection was lost. The robot must be reinitialized. "
                 "Create a new URRobot instance."
             )
-
-    def reconnect_rtde(self) -> None:
-        """Reconnect RTDE interfaces and reinitialize subsystems.
-
-        Use this after a protective stop or fault to re-establish
-        the RTDE connection without creating a new URRobot instance.
-
-        Disconnects all existing RTDE interfaces, reuploads the
-        control script, and rebuilds Motion, Telemetry, and IO.
-
-        Raises:
-            ConnectionError: If reconnection fails.
-        """
-        logger.info("Reconnecting RTDE...")
-
-        # Disconnect existing interfaces
-        try:
-            if getattr(self, '_rtde_c', None) is not None:
-                self._rtde_c.disconnect()
-        except Exception:
-            pass
-        try:
-            if getattr(self, '_rtde_r', None) is not None:
-                self._rtde_r.disconnect()
-        except Exception:
-            pass
-        try:
-            if getattr(self, '_rtde_io', None) is not None:
-                self._rtde_io.disconnect()
-        except Exception:
-            pass
-
-        # Reconnect
-        try:
-            self._rtde_c, self._rtde_r, self._rtde_io = _connect_rtde(
-                self._ip,
-                frequency=self._rtde_frequency,
+        if not self._rtde_c.isConnected():
+            self._connection_lost = True
+            raise ConnectionError(
+                "RTDE link to the robot is down. The C++ layer cannot "
+                "safely recover a mid-session link loss: re-run urkit to "
+                "reconnect. If the robot still refuses to connect, power "
+                "cycle the controller (dashboard: power off, power on)."
             )
-        except ConnectionError:
-            raise
-        except Exception as e:
-            raise ConnectionError(f"Failed to reconnect RTDE: {e}")
-
-        # Reinitialize subsystems
-        self._telemetry = Telemetry(self._rtde_r)
-        self._io = IO(self._rtde_io, self._rtde_r)
-        self._motion = Motion(
-            self._rtde_c,
-            self._rtde_r,
-            self._rtde_io,
-            default_vel=self._default_vel,
-            default_acc=self._default_acc,
-        )
-
-        # Reconnect gripper if it was active
-        if getattr(self, '_gripper', None) is not None:
-            try:
-                self._gripper._rtde_c = self._rtde_c  # type: ignore[union-attr]
-                self._gripper._rtde_r = self._rtde_r  # type: ignore[union-attr]
-                self._gripper._activated = False  # type: ignore[union-attr]
-            except Exception:
-                pass
-
-        self._connection_lost = False
-        logger.info("RTDE reconnected successfully")
 
     def disconnect(self) -> None:
         """Close RTDE connections, Dashboard socket, and points database.
 
         Call this when done to release resources. Safe to call even
-        if __init__ failed partway through.
+        if __init__ failed partway through. Idempotent: the second
+        call (e.g. from __del__ during interpreter shutdown) is a
+        no-op, so exit cannot double-stop the robot or double-close
+        sockets while the C++ layer is already torn down.
         """
+        if getattr(self, "_disconnected", False):
+            return
+        self._disconnected = True
         try:
             getattr(self, '_motion', None) and self._motion.stop_script()  # type: ignore
         except Exception:
