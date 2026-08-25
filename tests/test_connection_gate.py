@@ -53,7 +53,7 @@ class TestConnectionGate:
     def test_dead_link_blocks_move_relative(self, robot):
         robot._rtde_c.isConnected.return_value = False
         with pytest.raises(URKitConnectionError, match="RTDE link"):
-            robot.move_relative(delta_y=-0.005)
+            robot.move_relative(dy=-0.005)
         # The native call must never be reached.
         robot._rtde_c.moveL.assert_not_called()
         robot._rtde_c.moveJ.assert_not_called()
@@ -67,7 +67,7 @@ class TestConnectionGate:
     def test_dead_link_flags_session_dead(self, robot):
         robot._rtde_c.isConnected.return_value = False
         with pytest.raises(URKitConnectionError):
-            robot.move_relative(delta_y=-0.005)
+            robot.move_relative(dy=-0.005)
         assert robot.connection_lost is True
 
     def test_flag_blocks_even_if_socket_reports_back(self, robot):
@@ -77,7 +77,7 @@ class TestConnectionGate:
         robot._connection_lost = True
         robot._rtde_c.isConnected.return_value = True
         with pytest.raises(URKitConnectionError, match="reinitialized"):
-            robot.move_relative(delta_y=-0.005)
+            robot.move_relative(dy=-0.005)
         robot._rtde_c.moveL.assert_not_called()
 
     def test_live_link_passes_gate(self, robot):
@@ -87,7 +87,7 @@ class TestConnectionGate:
         robot._rtde_c.moveJ.return_value = True
         robot._motion.moveL = MagicMock(return_value=True)
         try:
-            robot.move_relative(delta_y=-0.005)
+            robot.move_relative(dy=-0.005)
         except Exception:
             # Downstream mock gaps are fine; the gate itself must not
             # have raised.

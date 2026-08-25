@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- `URRobot.move_relative()` keyword parameters `delta_x`, `delta_y`, `delta_z`, `delta_rx`, `delta_ry`, `delta_rz` renamed to `dx`, `dy`, `dz`, `drx`, `dry`, `drz`. This matches the element names the `delta` list already uses in the docs (`[dx, dy, dz, drx, dry, drz]`) and the abbreviated `vel`/`acc` style. Breaking: old names now raise `TypeError`
+
 ### Fixed
 - Root cause of `stopScript failed: WinError 1` and motion hangs: when the RTDE link drops mid-session, the vendored ur_rtde C++ layer enters an internal reconnect loop, so a motion call blocks inside it (measured 45+ s with the link blocked) and a later call surfaces WinError 1 from the half-rebuilt socket. urkit now fails fast: `_check_connection()` checks the live `isConnected()` state at every motion entry point (it previously only checked a flag nothing set) and raises immediately, and `URRobot.reconnect_rtde()` is removed because a Python-level reconnect races the C++ layer's own loop, which is exactly what created the WinError 1 window. An RTDE drop is now fatal for the session; the README documents the verified behavior and recovery, including a controller power cycle after a hard drop
 - Arrow keys (and Home/End/F keys) no longer fire movement or point keys in the CLIs, on both platforms. The input loops consumed raw burst bytes, so a CSI sequence's ESC byte parsed as a cancel and its final byte as a key (an up arrow fired the 'a' move handler, a down arrow the 'b' save-point handler). `read_chars()`/`read_key()` parse and drop complete escape sequences, keep real ESC presses (with a short grace wait for sequences split across reads), and are used by the main loops, prompts, and submenus

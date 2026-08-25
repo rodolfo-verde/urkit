@@ -1271,12 +1271,12 @@ class URRobot:
         vel: float | None = None,
         acc: float | None = None,
         asynchronous: bool = False,
-        delta_x: float = 0.0,
-        delta_y: float = 0.0,
-        delta_z: float = 0.0,
-        delta_rx: float = 0.0,
-        delta_ry: float = 0.0,
-        delta_rz: float = 0.0,
+        dx: float = 0.0,
+        dy: float = 0.0,
+        dz: float = 0.0,
+        drx: float = 0.0,
+        dry: float = 0.0,
+        drz: float = 0.0,
     ) -> None:
         """Relative Cartesian move from the current position.
 
@@ -1285,39 +1285,40 @@ class URRobot:
 
         Args:
             delta: [dx, dy, dz, drx, dry, drz] in meters/radians.
-                Mutually exclusive with individual delta_* parameters.
+                Mutually exclusive with the individual dx/dy/dz/drx/
+                dry/drz parameters.
             frame: Coordinate frame for the delta. Falls back to the
                 current ``move_frame`` property (BASE or TOOL).
             vel: Velocity override. Falls back to default_vel.
             acc: Acceleration override. Falls back to default_acc.
             asynchronous: If True, move runs in background and method returns
                 immediately (default False).
-            delta_x: X delta in meters (default 0.0).
-            delta_y: Y delta in meters (default 0.0).
-            delta_z: Z delta in meters (default 0.0).
-            delta_rx: Roll delta in radians (default 0.0).
-            delta_ry: Pitch delta in radians (default 0.0).
-            delta_rz: Yaw delta in radians (default 0.0).
+            dx: X delta in meters (default 0.0).
+            dy: Y delta in meters (default 0.0).
+            dz: Z delta in meters (default 0.0).
+            drx: Roll delta in radians (default 0.0).
+            dry: Pitch delta in radians (default 0.0).
+            drz: Yaw delta in radians (default 0.0).
 
         Raises:
             MotionError: If the move fails or pose is unreachable.
 
         Example:
-            >>> robot.move_relative(delta_y=0.01)  # 1cm along Y
-            >>> robot.move_relative(delta_z=0.05, frame=MoveFrame.TOOL)
+            >>> robot.move_relative(dy=0.01)  # 1cm along Y
+            >>> robot.move_relative(dz=0.05, frame=MoveFrame.TOOL)
             >>> robot.move_relative([0, 0.01, 0, 0, 0, 0])  # full list
         """
         self._check_connection()
         self._disable_freedrive_guard()
 
         # Build delta from individual params or use provided list
-        individual_delta = [delta_x, delta_y, delta_z, delta_rx, delta_ry, delta_rz]
+        individual_delta = [dx, dy, dz, drx, dry, drz]
         has_individual = any(v != 0.0 for v in individual_delta)
 
         if delta is not None and has_individual:
             raise MotionError(
-                "Cannot use both 'delta' list and individual delta_* parameters. "
-                "Use one or the other."
+                "Cannot use both the 'delta' list and individual dx/dy/dz/"
+                "drx/dry/drz parameters. Use one or the other."
             )
 
         final_delta = delta if delta is not None and not has_individual else (
@@ -1326,8 +1327,8 @@ class URRobot:
 
         if final_delta is None:
             raise MotionError(
-                "Relative move requires either 'delta' list or at least one "
-                "delta_* parameter."
+                "Relative move requires either the 'delta' list or at least "
+                "one of dx, dy, dz, drx, dry, drz."
             )
 
         if len(final_delta) != 6:

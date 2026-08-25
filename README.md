@@ -592,7 +592,7 @@ robot.move_to(pose)  # move to the resolved pose later
 from urkit import MoveFrame
 
 robot.move_frame = MoveFrame.TOOL   # default is BASE
-robot.move_relative(delta_z=0.05)  # 5cm along tool Z
+robot.move_relative(dz=0.05)  # 5cm along tool Z
 ```
 
 - **BASE** (default): delta relative to robot base
@@ -613,7 +613,7 @@ robot.ik_reference = "home"
 # Now all moves stay close to that posture, no elbow flipping
 robot.move_to("pick")
 robot.move_to("place")
-robot.move_relative(delta_z=-0.05)
+robot.move_relative(dz=-0.05)
 ```
 
 **In config.yaml** (recommended for permanent setup):
@@ -656,12 +656,12 @@ robot.import_points("backup.json")
 #### Relative Moves
 
 ```python
-robot.move_relative(delta_y=0.01)  # 1cm along Y
-robot.move_relative(delta_z=0.05, frame=MoveFrame.TOOL)  # 5cm along tool Z
+robot.move_relative(dy=0.01)  # 1cm along Y
+robot.move_relative(dz=0.05, frame=MoveFrame.TOOL)  # 5cm along tool Z
 robot.move_relative([0, 0.01, 0, 0, 0, 0])  # full 6-element delta
 ```
 
-Individual delta parameters (`delta_x`, `delta_y`, `delta_z`, `delta_rx`, `delta_ry`, `delta_rz`) are mutually exclusive with the `delta` list. Use one or the other.
+Individual delta parameters (`dx`, `dy`, `dz`, `drx`, `dry`, `drz`) are mutually exclusive with the `delta` list. Use one or the other.
 
 #### Sequences
 
@@ -711,7 +711,7 @@ for _ in range(3):
     if robot.move_until_contact(speed_z=-0.02, timeout=10.0, max_distance=0.2):
         break  # contact detected
     # No contact, back off and retry
-    robot.move_relative(delta_z=0.01)
+    robot.move_relative(dz=0.01)
 
 # Manual zero (e.g. before custom force-based logic)
 robot.zero_ft_sensor()
