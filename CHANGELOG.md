@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.5.0] 2026-08-25
 
 ### Changed
 - A named `ik_reference` with no points DB configured now raises `PointError` immediately instead of warning and falling back to current joint positions: a configured posture reference cannot silently become a no-op
