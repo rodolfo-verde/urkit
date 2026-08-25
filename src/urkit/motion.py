@@ -356,7 +356,7 @@ class Motion:
 
     def move_until_contact(
         self,
-        speed_vector: list[float],
+        velocity: list[float],
         *,
         threshold: float = 5.0,
         acc: float = 0.1,
@@ -376,8 +376,8 @@ class Motion:
         every axis — linear and rotational.
 
         Args:
-            speed_vector: 6-element speed vector
-                ``[vx, vy, vz, vRoll, vPitch, dYaw]`` in m/s and rad/s.
+            velocity: 6-element speed vector
+                ``[vx, vy, vz, vrx, vry, vrz]`` in m/s and rad/s.
             threshold: Force/torque delta (N or Nm) that triggers contact.
                 Contact fires when any of the 6 wrench components changes
                 by more than this value from the baseline reading.
@@ -410,9 +410,9 @@ class Motion:
             ...         break
             ...     # No contact — reposition and retry
         """
-        if len(speed_vector) != 6:
+        if len(velocity) != 6:
             raise MotionError(
-                f"Speed vector must have 6 values, got {len(speed_vector)}."
+                f"Velocity vector must have 6 values, got {len(velocity)}."
             )
         if threshold <= 0:
             raise MotionError(f"Threshold must be > 0, got {threshold}.")
@@ -424,8 +424,8 @@ class Motion:
         contact_detected = False
         try:
             logger.debug(
-                "move_until_contact: speed_vector=%s, threshold=%.2f, timeout=%s, max_distance=%s",
-                speed_vector, threshold, timeout, max_distance,
+                "move_until_contact: velocity=%s, threshold=%.2f, timeout=%s, max_distance=%s",
+                velocity, threshold, timeout, max_distance,
             )
 
             # Zero FT sensor to clear gravity bias before reading baseline
@@ -488,11 +488,11 @@ class Motion:
 
                 with _suppress_rtde_stderr():
                     t_start = self._rtde_c.initPeriod()
-                    self._rtde_c.speedL(speed_vector, acc, 0.002)
+                    self._rtde_c.speedL(velocity, acc, 0.002)
 
                 # Check force/torque for contact — only on moving axes
                 current = list(self._rtde_r.getActualTCPForce())
-                moving_axes = [i for i in range(6) if abs(speed_vector[i]) > 0]
+                moving_axes = [i for i in range(6) if abs(velocity[i]) > 0]
                 if any(
                     abs(current[i] - baseline[i]) > threshold for i in moving_axes
                 ):
@@ -516,7 +516,7 @@ class Motion:
 
     def move_velocity(
         self,
-        speed_vector: list[float],
+        velocity: list[float],
         duration: float,
         acc: float = 0.1,
         dt: float = 0.002,
@@ -527,8 +527,8 @@ class Motion:
         Blocks until *duration* seconds have elapsed.
 
         Args:
-            speed_vector: 6-element Cartesian velocity
-                ``[vx, vy, vz, vRoll, vPitch, dYaw]`` in m/s and rad/s.
+            velocity: 6-element Cartesian velocity
+                ``[vx, vy, vz, vrx, vry, vrz]`` in m/s and rad/s.
             duration: How long to move in seconds.
             acceleration: Acceleration limit in m/s\ :sup:2.
             dt: Control loop period in seconds (default 0.002 = 500 Hz).
@@ -540,9 +540,9 @@ class Motion:
             >>> # Move down at 20 mm/s for 1 second
             >>> motion.move_velocity([0, 0, -0.02, 0, 0, 0], duration=1.0)
         """
-        if len(speed_vector) != 6:
+        if len(velocity) != 6:
             raise MotionError(
-                f"Speed vector must have 6 values, got {len(speed_vector)}."
+                f"Velocity vector must have 6 values, got {len(velocity)}."
             )
         if duration <= 0:
             raise MotionError(f"Duration must be > 0, got {duration}.")
@@ -577,7 +577,7 @@ class Motion:
 
                 with _suppress_rtde_stderr():
                     t_start = self._rtde_c.initPeriod()
-                    self._rtde_c.speedL(speed_vector, acc, dt)
+                    self._rtde_c.speedL(velocity, acc, dt)
                     self._rtde_c.waitPeriod(t_start)
         except MotionError:
             raise

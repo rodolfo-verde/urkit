@@ -257,7 +257,8 @@ def _quat_rotate_vector(
 class MoveFrame(IntEnum):
     """Coordinate frame for relative (delta) movements.
 
-    Controls how delta vectors are interpreted during ``move_relative()`` and offsets.
+    Controls how delta vectors are interpreted during ``move_to()``,
+    ``move_relative()``, and related calls.
     - ``BASE`` — Delta is expressed in the robot's base frame.
       Pressing +X always moves along the base X axis.
     - ``TOOL`` — Delta is expressed in the TCP (tool) frame.

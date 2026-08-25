@@ -10,7 +10,7 @@ from dataclasses import replace
 import logging
 import sys
 import time
-from typing import TYPE_CHECKING, Literal, Optional, Union
+from typing import TYPE_CHECKING, Optional, Union
 from pathlib import Path
 
 if TYPE_CHECKING:
@@ -72,6 +72,53 @@ def _is_pose(v: object) -> bool:
         and len(v) == 6
         and all(isinstance(x, (int, float)) for x in v)
     )
+
+
+class _GlobalIKReference:
+    """Type of the GLOBAL ik_reference sentinel.
+
+    The value is compared by identity (``is``), so only the exported
+    singleton has meaning; a newly constructed instance never matches.
+    """
+
+    __slots__ = ()
+
+    def __repr__(self) -> str:
+        return "GLOBAL"
+
+
+GLOBAL = _GlobalIKReference()
+"""Sentinel value: use the robot's global ``ik_reference`` setting.
+
+Pass ``ik_reference=GLOBAL`` to ``move_to()``/``move_sequence()`` to
+explicitly request the robot-level setting (also the default). ``None``
+disables the IK reference for a single call. The previous magic string
+``"__global__"`` is removed.
+"""
+
+
+def _check_ik_reference_setting(value: object) -> None:
+    """Validate a value for the global ik_reference setting.
+
+    The setting accepts a point name, ``"current"``, a 6-joint list,
+    or None. GLOBAL and the removed ``"__global__"`` string are
+    rejected here so a bad value cannot sit in the robot and only
+    fail later as a confusing point-lookup error (or the fallback-to
+    current-joints warning). Fail at the assignment instead.
+    """
+    if value is GLOBAL:
+        raise MotionError(
+            "The global ik_reference setting does not accept GLOBAL: "
+            "GLOBAL is a per-call value for move_to()/move_sequence(). "
+            "Use a point name, 'current', a 6-joint list, or None."
+        )
+    if value == "__global__":
+        raise MotionError(
+            'The global ik_reference setting no longer accepts the '
+            '"__global__" string (removed). Use a point name, '
+            "'current', a 6-joint list, or None. GLOBAL is only a "
+            "per-call value for move_to()/move_sequence()."
+        )
 
 
 class URRobot:
@@ -148,6 +195,7 @@ class URRobot:
         self._rtde_frequency = 500.0
         self._connection_lost = False
         self._move_frame: MoveFrame = MoveFrame.BASE
+        _check_ik_reference_setting(ik_reference)
         self._ik_reference: str | list[float] | None = ik_reference
 
         # Target tracking for pose-based arrival detection in is_moving()
@@ -565,20 +613,20 @@ class URRobot:
 
     @property
     def move_frame(self) -> MoveFrame:
-        """Current coordinate frame for relative (delta) movements and offsets.
+        """Current coordinate frame for relative (delta) movements.
 
-        Controls how delta vectors and offsets are interpreted:
+        Controls how delta vectors are interpreted:
         - ``MoveFrame.BASE`` — relative to the robot base (default).
         - ``MoveFrame.TOOL`` — relative to the current TCP orientation.
 
-        This is the default for ``move_to(offset=)``, ``move_relative()``,
+        This is the default for ``move_to(delta=)``, ``move_relative()``,`
         and any method that applies a spatial delta. Individual calls can
         override with their own ``frame=`` argument.
 
         Example:
             >>> robot.move_frame = MoveFrame.TOOL
             >>> robot.move_relative([0.01, 0, 0, 0, 0, 0])  # +X in tool frame
-            >>> robot.move_to("pick", offset_z=0.05)   # offset in tool frame
+            >>> robot.move_to("pick", dz=0.05)   # delta in tool frame
         """
         return self._move_frame
 
@@ -964,14 +1012,14 @@ class URRobot:
         self,
         target: str | list[float],
         *,
-        offset: list[float] | None = None,
+        delta: list[float] | None = None,
         frame: MoveFrame | None = None,
-        offset_x: float = 0.0,
-        offset_y: float = 0.0,
-        offset_z: float = 0.0,
-        offset_rx: float = 0.0,
-        offset_ry: float = 0.0,
-        offset_rz: float = 0.0,
+        dx: float = 0.0,
+        dy: float = 0.0,
+        dz: float = 0.0,
+        drx: float = 0.0,
+        dry: float = 0.0,
+        drz: float = 0.0,
     ) -> list[float]:
         """Resolve a saved point or raw pose to a TCP pose.
 
@@ -981,52 +1029,52 @@ class URRobot:
         Args:
             target: A saved point name (str) or a raw TCP pose
                 [x, y, z, rx, ry, rz].
-            offset: Optional offset [dx, dy, dz, drx, dry, drz]
+            delta: Optional delta [dx, dy, dz, drx, dry, drz]
                 applied to the target pose. Mutually exclusive with
-                individual offset_* parameters.
-            frame: Coordinate frame for the offset. Falls back to the
+                the individual dx/dy/dz/drx/dry/drz parameters.
+            frame: Coordinate frame for the delta. Falls back to the
                 current ``move_frame`` property (BASE or TOOL).
-            offset_x: X offset in meters (default 0.0).
-            offset_y: Y offset in meters (default 0.0).
-            offset_z: Z offset in meters (default 0.0).
-            offset_rx: Roll offset in radians (default 0.0).
-            offset_ry: Pitch offset in radians (default 0.0).
-            offset_rz: Yaw offset in radians (default 0.0).
+            dx: X delta in meters (default 0.0).
+            dy: Y delta in meters (default 0.0).
+            dz: Z delta in meters (default 0.0).
+            drx: Roll delta in radians (default 0.0).
+            dry: Pitch delta in radians (default 0.0).
+            drz: Yaw delta in radians (default 0.0).
 
         Returns:
             TCP pose as [x, y, z, rx, ry, rz].
 
         Raises:
-            PointError: If the named point is not found or offset is invalid.
+            PointError: If the named point is not found or delta is invalid.
 
         Example:
             >>> point = robot.get_point("pick")
-            >>> point = robot.get_point("pick", offset_z=0.05)
+            >>> point = robot.get_point("pick", dz=0.05)
             >>> robot.move_to(point)
         """
         point = self._lookup_point(target)
 
-        # Build offset from individual params or use provided list
-        individual_offset = [offset_x, offset_y, offset_z, offset_rx, offset_ry, offset_rz]
-        has_individual = any(v != 0.0 for v in individual_offset)
+        # Build delta from individual params or use provided list
+        individual_delta = [dx, dy, dz, drx, dry, drz]
+        has_individual = any(v != 0.0 for v in individual_delta)
 
-        if offset is not None and has_individual:
+        if delta is not None and has_individual:
             raise PointError(
-                "Cannot use both 'offset' list and individual offset_* parameters. "
-                "Use one or the other."
+                "Cannot use both the 'delta' list and individual dx/dy/dz/"
+                "drx/dry/drz parameters. Use one or the other."
             )
 
-        final_offset = offset if offset is not None and not has_individual else (
-            individual_offset if has_individual else None
+        final_delta = delta if delta is not None and not has_individual else (
+            individual_delta if has_individual else None
         )
 
-        if final_offset is not None:
-            if len(final_offset) != 6:
+        if final_delta is not None:
+            if len(final_delta) != 6:
                 raise PointError(
-                    f"Offset must have 6 values [dx, dy, dz, drx, dry, drz], "
-                    f"got {len(final_offset)}."
+                    f"Delta must have 6 values [dx, dy, dz, drx, dry, drz], "
+                    f"got {len(final_delta)}."
                 )
-            point = point.with_offset(final_offset, frame=frame or self._move_frame)
+            point = point.with_delta(final_delta, frame=frame or self._move_frame)
 
         return list(point.pose)
 
@@ -1035,18 +1083,18 @@ class URRobot:
         target: str | list[float],
         *,
         linear: bool = True,
-        offset: list[float] | None = None,
+        delta: list[float] | None = None,
         frame: MoveFrame | None = None,
         vel: float | None = None,
         acc: float | None = None,
         asynchronous: bool = False,
-        offset_x: float = 0.0,
-        offset_y: float = 0.0,
-        offset_z: float = 0.0,
-        offset_rx: float = 0.0,
-        offset_ry: float = 0.0,
-        offset_rz: float = 0.0,
-        ik_reference: str | list[float] | None | Literal["__global__"] = "__global__",
+        dx: float = 0.0,
+        dy: float = 0.0,
+        dz: float = 0.0,
+        drx: float = 0.0,
+        dry: float = 0.0,
+        drz: float = 0.0,
+        ik_reference: str | list[float] | None | _GlobalIKReference = GLOBAL,
     ) -> None:
         """Move to a saved point or raw pose.
 
@@ -1057,26 +1105,27 @@ class URRobot:
                 If False, use joint-space move (moveJ). When ``linear=True``,
                 ``ik_reference`` is ignored (moveL doesn't accept a custom
                 IK seed — the controller handles IK internally).
-            offset: Optional offset [dx, dy, dz, drx, dry, drz]
+            delta: Optional delta [dx, dy, dz, drx, dry, drz]
                 applied to the target pose before moving. Mutually
-                exclusive with individual offset_* parameters.
-            frame: Coordinate frame for the offset. Falls back to the
+                exclusive with the individual dx/dy/dz/drx/dry/drz
+                parameters.
+            frame: Coordinate frame for the delta. Falls back to the
                 current ``move_frame`` property (BASE or TOOL).
             vel: Velocity override. Falls back to default_vel.
             acc: Acceleration override. Falls back to default_acc.
             asynchronous: If True, move runs in background and method returns
                 immediately (default False).
-            offset_x: X offset in meters (default 0.0).
-            offset_y: Y offset in meters (default 0.0).
-            offset_z: Z offset in meters (default 0.0).
-            offset_rx: Roll offset in radians (default 0.0).
-            offset_ry: Pitch offset in radians (default 0.0).
-            offset_rz: Yaw offset in radians (default 0.0).
+            dx: X delta in meters (default 0.0).
+            dy: Y delta in meters (default 0.0).
+            dz: Z delta in meters (default 0.0).
+            drx: Roll delta in radians (default 0.0).
+            dry: Pitch delta in radians (default 0.0).
+            drz: Yaw delta in radians (default 0.0).
             ik_reference: Per-call IK reference override. Only applies
                 when ``linear=False`` (joint moves). Ignored for linear
                 moves (moveL doesn't accept a custom IK seed). One of:
 
-                - ``"__global__"`` (default): Use the robot's global
+                - ``GLOBAL`` (default): Use the robot's global
                   ``ik_reference`` setting.
                 - ``None``: Explicitly disable IK reference for this
                   move (use controller's default behavior).
@@ -1086,14 +1135,14 @@ class URRobot:
 
         Raises:
             MotionError: If the move fails or IK has no solution.
-            PointError: If the named point is not found or offset is invalid.
+            PointError: If the named point is not found or delta is invalid.
 
         Example:
             >>> robot.move_to("home")
             >>> robot.move_to("pick", linear=False)
-            >>> robot.move_to("pick", offset_z=0.05)  # 5cm above
-            >>> robot.move_to("pick", offset_x=0.01, offset_z=-0.02)
-            >>> robot.move_to("pick", offset=[0, 0, 0.05, 0, 0.1, 0])  # full
+            >>> robot.move_to("pick", dz=0.05)  # 5cm above
+            >>> robot.move_to("pick", dx=0.01, dz=-0.02)
+            >>> robot.move_to("pick", delta=[0, 0, 0.05, 0, 0.1, 0])  # full
             >>> robot.move_to([0.5, 0, 0.3, 0, 0, 0])  # raw pose
             >>> robot.move_to("pick", ik_reference="home")  # per-call override
             >>> robot.move_to("pick", ik_reference=None)  # disable for one move
@@ -1103,41 +1152,50 @@ class URRobot:
 
         point = self._lookup_point(target)
 
-        # Build offset from individual params or use provided list
-        individual_offset = [offset_x, offset_y, offset_z, offset_rx, offset_ry, offset_rz]
-        has_individual = any(v != 0.0 for v in individual_offset)
+        # Build delta from individual params or use provided list
+        individual_delta = [dx, dy, dz, drx, dry, drz]
+        has_individual = any(v != 0.0 for v in individual_delta)
 
-        if offset is not None and has_individual:
+        if delta is not None and has_individual:
             raise PointError(
-                "Cannot use both 'offset' list and individual offset_* parameters. "
-                "Use one or the other."
+                "Cannot use both the 'delta' list and individual dx/dy/dz/"
+                "drx/dry/drz parameters. Use one or the other."
             )
 
-        final_offset = offset if offset is not None and not has_individual else (
-            individual_offset if has_individual else None
+        final_delta = delta if delta is not None and not has_individual else (
+            individual_delta if has_individual else None
         )
 
-        # Apply offset if provided
-        if final_offset is not None:
-            if len(final_offset) != 6:
+        # Apply delta if provided
+        if final_delta is not None:
+            if len(final_delta) != 6:
                 raise PointError(
-                    f"Offset must have 6 values [dx, dy, dz, drx, dry, drz], "
-                    f"got {len(final_offset)}."
+                    f"Delta must have 6 values [dx, dy, dz, drx, dry, drz], "
+                    f"got {len(final_delta)}."
                 )
-            point = point.with_offset(final_offset, frame=frame or self._move_frame)
+            point = point.with_delta(final_delta, frame=frame or self._move_frame)
 
         pose = list(point.pose)
 
         vel = vel if vel is not None else self._default_vel
         acc = acc if acc is not None else self._default_acc
 
+        # The old "__global__" magic string is gone: fail loud with a
+        # migration hint instead of a later point-lookup error.
+        if ik_reference == "__global__":
+            raise MotionError(
+                'ik_reference no longer accepts the "__global__" string. '
+                "Pass urkit.GLOBAL (the default) to use the robot's global "
+                "ik_reference setting, or None to disable it for one move."
+            )
+
         # Resolve effective ik_reference: per-call > global
         effective_ik = (
-            self._ik_reference if ik_reference == "__global__" else ik_reference
+            self._ik_reference if ik_reference is GLOBAL else ik_reference
         )
 
         # Explicit ik_reference + linear=True is a contradiction
-        if ik_reference != "__global__" and ik_reference is not None and linear:
+        if ik_reference is not GLOBAL and ik_reference is not None and linear:
             raise MotionError(
                 "Cannot use ik_reference with linear=True. "
                 "ik_reference applies to joint moves only (linear=False). "
@@ -1410,7 +1468,7 @@ class URRobot:
         blend_radius: float = 0.0,
         vel: float | None = None,
         acc: float | None = None,
-        ik_reference: str | list[float] | None | Literal["__global__"] = "__global__",
+        ik_reference: str | list[float] | None | _GlobalIKReference = GLOBAL,
     ) -> None:
         """Move through a sequence of points as a blended path.
 
@@ -1453,7 +1511,7 @@ class URRobot:
             ik_reference: Reference posture for inverse kinematics
                 resolution. Only applies when ``linear=False``. One of:
 
-                - ``"__global__"`` (default): Use the robot's global
+                - ``GLOBAL`` (default): Use the robot's global
                   ``ik_reference`` setting.
                 - ``None``: Explicitly disable IK reference (resolve
                   each pose independently — joints may flip).
@@ -1505,13 +1563,22 @@ class URRobot:
         v = vel if vel is not None else self._default_vel
         a = acc if acc is not None else self._default_acc
 
+        # The old "__global__" magic string is gone: fail loud with a
+        # migration hint instead of a later point-lookup error.
+        if ik_reference == "__global__":
+            raise MotionError(
+                'ik_reference no longer accepts the "__global__" string. '
+                "Pass urkit.GLOBAL (the default) to use the robot's global "
+                "ik_reference setting, or None to disable it for one move."
+            )
+
         # Resolve effective ik_reference: per-call > global
         effective_ik = (
-            self._ik_reference if ik_reference == "__global__" else ik_reference
+            self._ik_reference if ik_reference is GLOBAL else ik_reference
         )
 
         # Explicit ik_reference + linear=True is a contradiction
-        if ik_reference != "__global__" and ik_reference is not None and linear:
+        if ik_reference is not GLOBAL and ik_reference is not None and linear:
             raise MotionError(
                 "Cannot use ik_reference with linear=True. "
                 "ik_reference applies to joint moves only (linear=False). "
@@ -1580,19 +1647,19 @@ class URRobot:
 
     def move_until_contact(
         self,
-        speed_vector: list[float] | None = None,
+        velocity: list[float] | None = None,
         *,
         threshold: float = 5.0,
         acc: float = 0.1,
         zero_first: bool = True,
         timeout: float | None = None,
         max_distance: float | None = None,
-        speed_x: float = 0.0,
-        speed_y: float = 0.0,
-        speed_z: float = 0.0,
-        speed_rx: float = 0.0,
-        speed_ry: float = 0.0,
-        speed_rz: float = 0.0,
+        vx: float = 0.0,
+        vy: float = 0.0,
+        vz: float = 0.0,
+        vrx: float = 0.0,
+        vry: float = 0.0,
+        vrz: float = 0.0,
     ) -> bool:
         """Move until contact is detected via TCP force sensing.
 
@@ -1600,9 +1667,10 @@ class URRobot:
         Zeros the FT sensor by default before reading the baseline.
 
         Args:
-            speed_vector: 6-element speed vector
-                ``[vx, vy, vz, vRoll, vPitch, dYaw]`` in m/s and rad/s.
-                Mutually exclusive with individual speed_* parameters.
+            velocity: 6-element velocity vector
+                ``[vx, vy, vz, vrx, vry, vrz]`` in m/s and rad/s.
+                Mutually exclusive with the individual vx/vy/vz/vrx/
+                vry/vrz parameters.
             threshold: Force/torque delta (N or Nm) that triggers contact.
                 Contact fires when any wrench component changes by more
                 than this value from the baseline reading.
@@ -1613,8 +1681,8 @@ class URRobot:
                 (default) for no time limit.
             max_distance: Maximum TCP travel distance in meters before aborting.
                 Set to ``None`` (default) for no distance limit.
-            speed_x, speed_y, speed_z: Linear speed components in m/s.
-            speed_rx, speed_ry, speed_rz: Angular speed components in rad/s.
+            vx, vy, vz: Linear velocity components in m/s.
+            vrx, vry, vrz: Angular velocity components in rad/s.
 
         Returns:
             ``True`` if contact was detected, ``False`` if timeout or
@@ -1622,21 +1690,21 @@ class URRobot:
 
         Example:
             >>> # Move straight down until contact
-            >>> robot.move_until_contact(speed_z=-0.02)
-            >>> # Using full speed vector
+            >>> robot.move_until_contact(vz=-0.02)
+            >>> # Using full velocity vector
             >>> robot.move_until_contact([0, 0, -0.02, 0, 0, 0])
             >>> # Higher threshold for heavier contact
-            >>> robot.move_until_contact(speed_z=-0.02, threshold=10.0)
+            >>> robot.move_until_contact(vz=-0.02, threshold=10.0)
             >>> # Abort after 10s or 200mm, whichever comes first
-            >>> robot.move_until_contact(speed_z=-0.02, timeout=10.0, max_distance=0.2)
+            >>> robot.move_until_contact(vz=-0.02, timeout=10.0, max_distance=0.2)
         """
         self._check_connection()
         self._disable_freedrive_guard()
 
-        if speed_vector is not None:
-            final_vector = speed_vector
+        if velocity is not None:
+            final_vector = velocity
         else:
-            final_vector = [speed_x, speed_y, speed_z, speed_rx, speed_ry, speed_rz]
+            final_vector = [vx, vy, vz, vrx, vry, vrz]
 
         return self._motion.move_until_contact(
             final_vector,
@@ -1649,14 +1717,14 @@ class URRobot:
 
     def move_velocity(
         self,
-        speed_vector: list[float],
+        velocity: list[float],
         duration: float,
         acc: float = 0.1,
     ) -> None:
         """Move at a constant Cartesian velocity for a given duration.
 
         Args:
-            speed_vector: ``[vx, vy, vz, vRoll, vPitch, dYaw]`` in m/s.
+            velocity: ``[vx, vy, vz, vrx, vry, vrz]`` in m/s.
             duration: How long to move in seconds.
             acc: Acceleration limit in m/s².
 
@@ -1666,7 +1734,7 @@ class URRobot:
         """
         self._check_connection()
         self._disable_freedrive_guard()
-        self._motion.move_velocity(speed_vector, duration, acc=acc)
+        self._motion.move_velocity(velocity, duration, acc=acc)
 
     def speed_stop(self) -> None:
         """Stop any ongoing speed motion (delta move)."""
@@ -1776,7 +1844,12 @@ class URRobot:
 
         Args:
             value: Reference posture (see getter docstring).
+
+        Raises:
+            MotionError: If value is GLOBAL or the removed
+                ``"__global__"`` string (neither is a valid setting).
         """
+        _check_ik_reference_setting(value)
         self._ik_reference = value
 
     # ------------------------------------------------------------------
@@ -1823,49 +1896,49 @@ class URRobot:
     def get_current_point(
         self,
         *,
-        offset: list[float] | None = None,
+        delta: list[float] | None = None,
         frame: MoveFrame | None = None,
-        offset_x: float = 0.0,
-        offset_y: float = 0.0,
-        offset_z: float = 0.0,
-        offset_rx: float = 0.0,
-        offset_ry: float = 0.0,
-        offset_rz: float = 0.0,
+        dx: float = 0.0,
+        dy: float = 0.0,
+        dz: float = 0.0,
+        drx: float = 0.0,
+        dry: float = 0.0,
+        drz: float = 0.0,
     ) -> list[float]:
-        """Get the robot's current TCP pose, optionally with offset.
+        """Get the robot's current TCP pose, optionally with a delta applied.
 
         Args:
-            offset: Optional offset [dx, dy, dz, drx, dry, drz]
+            delta: Optional delta [dx, dy, dz, drx, dry, drz]
                 applied to the current pose. Mutually exclusive with
-                individual offset_* parameters.
-            frame: Coordinate frame for the offset. Falls back to the
+                the individual dx/dy/dz/drx/dry/drz parameters.
+            frame: Coordinate frame for the delta. Falls back to the
                 current ``move_frame`` property (BASE or TOOL).
-            offset_x: X offset in meters (default 0.0).
-            offset_y: Y offset in meters (default 0.0).
-            offset_z: Z offset in meters (default 0.0).
-            offset_rx: Roll offset in radians (default 0.0).
-            offset_ry: Pitch offset in radians (default 0.0).
-            offset_rz: Yaw offset in radians (default 0.0).
+            dx: X delta in meters (default 0.0).
+            dy: Y delta in meters (default 0.0).
+            dz: Z delta in meters (default 0.0).
+            drx: Roll delta in radians (default 0.0).
+            dry: Pitch delta in radians (default 0.0).
+            drz: Yaw delta in radians (default 0.0).
 
         Returns:
             [x, y, z, rx, ry, rz] in meters/radians.
 
         Example:
             >>> pose = robot.get_current_point()
-            >>> pose = robot.get_current_point(offset_z=0.05)
+            >>> pose = robot.get_current_point(dz=0.05)
             >>> robot.move_to(pose)
         """
         current = self._telemetry.get_tcp_pose()
-        if offset is not None:
-            if len(offset) != 6:
+        if delta is not None:
+            if len(delta) != 6:
                 raise PointError(
-                    f"Offset must have 6 values, got {len(offset)}."
+                    f"Delta must have 6 values, got {len(delta)}."
                 )
-            return transform_pose_delta(current, offset, frame=frame or self._move_frame)
+            return transform_pose_delta(current, delta, frame=frame or self._move_frame)
 
-        individual_offset = [offset_x, offset_y, offset_z, offset_rx, offset_ry, offset_rz]
-        if any(v != 0.0 for v in individual_offset):
-            return transform_pose_delta(current, individual_offset, frame=frame or self._move_frame)
+        individual_delta = [dx, dy, dz, drx, dry, drz]
+        if any(v != 0.0 for v in individual_delta):
+            return transform_pose_delta(current, individual_delta, frame=frame or self._move_frame)
         return current
 
     def get_joint_positions(self) -> list[float]:

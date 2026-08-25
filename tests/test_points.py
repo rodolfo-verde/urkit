@@ -227,17 +227,17 @@ def test_namedpoint_frozen():
         p.name = "other"  # type: ignore
 
 
-def test_namedpoint_with_offset():
+def test_namedpoint_with_delta():
     p = Point(name="pick", pose=[0.5, 0, 0.3, 0, 0, 0])
-    p2 = p.with_offset([0.1, 0, 0, 0, 0, 0])
+    p2 = p.with_delta([0.1, 0, 0, 0, 0, 0])
     assert p.pose[0] == 0.5  # original unchanged
     assert p2.pose[0] == 0.6
 
 
-def test_namedpoint_with_offset_wrong_length():
+def test_namedpoint_with_delta_wrong_length():
     p = Point(name="pick", pose=[0.5, 0, 0.3, 0, 0, 0])
     with pytest.raises(PointError, match="6 values"):
-        p.with_offset([1, 2, 3])
+        p.with_delta([1, 2, 3])
 
 
 def test_namedpoint_with_name():
@@ -250,7 +250,7 @@ def test_namedpoint_with_name():
 
 def test_namedpoint_with_name_chainable():
     p = Point(name="", pose=[0.5, 0, 0.3, 0, 0, 0])
-    p2 = p.with_offset([0, 0, 0.1, 0, 0, 0]).with_name("above")
+    p2 = p.with_delta([0, 0, 0.1, 0, 0, 0]).with_name("above")
     assert p2.name == "above"
     assert p2.pose[2] == 0.4
 

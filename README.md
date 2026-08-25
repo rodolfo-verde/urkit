@@ -20,7 +20,7 @@ Built for labs and research setups where you need to get the robot moving fast a
 
 ## How it works
 
-Use the CLI to position the robot and save named waypoints. Then reference them by name in your code: move to points, apply offsets, run sequences. Points are stored in a local SQLite database, no robot-side setup needed.
+Use the CLI to position the robot and save named waypoints. Then reference them by name in your code: move to points, apply deltas, run sequences. Points are stored in a local SQLite database, no robot-side setup needed.
 
 The typical workflow: teach points with the pendant, write a few lines of Python to string them together, run it. Add vision, add sensors, add logic. The robot is just one component in your pipeline.
 
@@ -118,7 +118,7 @@ robot = URRobot(ip="192.168.1.50", points="points.db", gripper=ROBOTIQ_HAND_E)
 robot.gripper.activate()
 
 robot.move_to("home")
-robot.move_to("pick", offset_z=0.05)  # 5cm above
+robot.move_to("pick", dz=0.05)  # 5cm above
 robot.gripper.close()
 robot.move_to("place")
 robot.gripper.open()
@@ -136,7 +136,7 @@ from urkit import URRobot
 
 robot = URRobot.from_config("config.yaml")
 robot.move_to("home")
-robot.move_to("pick", offset_z=0.05)
+robot.move_to("pick", dz=0.05)
 ```
 
 5. **Iterate.** Add more points, tweak your code, repeat.
@@ -566,14 +566,14 @@ while robot.is_moving():
 
 A pose is `[x, y, z, rx, ry, rz]`: position in meters and orientation as a **rotation vector** (axis-angle in radians). This is not RPY (roll/pitch/yaw). The teach pendant displays RPY in degrees, which is a different representation. Values you see on the pendant won't match `get_current_point()` directly.
 
-#### Offsets
+#### Deltas
 
-Offsets can use individual parameters or a full 6-element list:
+Deltas can use individual parameters or a full 6-element list:
 
 ```python
-robot.move_to("pick", offset_z=0.05)  # 5cm above
-robot.move_to("pick", offset_x=0.01, offset_z=-0.02)  # combined
-robot.move_to("pick", offset=[0, 0, 0.05, 0, 0.1, 0])  # full with rotation
+robot.move_to("pick", dz=0.05)  # 5cm above
+robot.move_to("pick", dx=0.01, dz=-0.02)  # combined
+robot.move_to("pick", delta=[0, 0, 0.05, 0, 0.1, 0])  # full with rotation
 ```
 
 #### Resolve a Pose
@@ -582,7 +582,7 @@ Get a pose without moving. Useful for logging, comparisons, or custom motion:
 
 ```python
 point = robot.get_point("pick")
-point = robot.get_point("pick", offset=[0, 0, 0.05, 0, 0, 0])  # with offset
+point = robot.get_point("pick", delta=[0, 0, 0.05, 0, 0, 0])  # with delta
 robot.move_to(pose)  # move to the resolved pose later
 ```
 
@@ -692,23 +692,23 @@ Before sending any move, it checks that each pose has a valid IK solution. Unrea
 
 ```python
 # Move straight down until contact (zeros FT sensor automatically)
-robot.move_until_contact(speed_z=-0.02)
+robot.move_until_contact(vz=-0.02)
 
 # Custom threshold (default: 5.0 N/Nm)
-robot.move_until_contact(speed_z=-0.02, threshold=10.0)
+robot.move_until_contact(vz=-0.02, threshold=10.0)
 
 # Skip zeroing if you need absolute force values
-robot.move_until_contact(speed_z=-0.02, zero_first=False)
+robot.move_until_contact(vz=-0.02, zero_first=False)
 
 # Full speed vector
 robot.move_until_contact([0, 0, -0.02, 0, 0, 0])
 
 # Abort after 10s or 200mm of travel, whichever comes first
-robot.move_until_contact(speed_z=-0.02, timeout=10.0, max_distance=0.2)
+robot.move_until_contact(vz=-0.02, timeout=10.0, max_distance=0.2)
 
 # Returns True if contact detected, False if timeout/max_distance hit
 for _ in range(3):
-    if robot.move_until_contact(speed_z=-0.02, timeout=10.0, max_distance=0.2):
+    if robot.move_until_contact(vz=-0.02, timeout=10.0, max_distance=0.2):
         break  # contact detected
     # No contact, back off and retry
     robot.move_relative(dz=0.01)
@@ -774,7 +774,7 @@ joints = robot.inverse_kinematics([0.5, 0, 0.3, 0, 0, 0])
 
 ```python
 pose = robot.get_current_point()           # [x, y, z, rx, ry, rz]
-pose = robot.get_current_point(offset_z=0.05)  # with offset
+pose = robot.get_current_point(dz=0.05)  # with delta
 joints = robot.get_joint_positions()       # [j0..j5]
 force = robot.get_tcp_force()              # [fx, fy, fz, mx, my, mz]
 mode = robot.get_robot_mode()              # "REMOTE_CONTROL", "SERVOING", etc.

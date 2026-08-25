@@ -35,28 +35,28 @@ class Point:
     name: str
     pose: list[float]
 
-    def with_offset(
+    def with_delta(
         self,
-        offset: list[float],
+        delta: list[float],
         frame: MoveFrame = MoveFrame.BASE,
     ) -> "Point":
-        """Return a new Point with the offset applied to the pose.
+        """Return a new Point with the delta applied to the pose.
 
         Args:
-            offset: [dx, dy, dz, drx, dry, drz].
-            frame: Coordinate frame for interpreting the offset
+            delta: [dx, dy, dz, drx, dry, drz].
+            frame: Coordinate frame for interpreting the delta
                 (``MoveFrame.BASE`` or ``MoveFrame.TOOL``).
 
         Returns:
-            New Point with offset applied to the pose.
+            New Point with the delta applied to the pose.
         """
-        if len(offset) != 6:
+        if len(delta) != 6:
             raise PointError(
-                f"Offset must have 6 values, got {len(offset)}."
+                f"Delta must have 6 values, got {len(delta)}."
             )
         return Point(
             name=self.name,
-            pose=transform_pose_delta(self.pose, offset, frame),
+            pose=transform_pose_delta(self.pose, delta, frame),
         )
 
     def with_name(self, name: str) -> "Point":

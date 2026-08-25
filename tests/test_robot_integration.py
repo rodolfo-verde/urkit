@@ -318,11 +318,11 @@ class TestPointManagement:
         with pytest.raises(PointError, match="not found"):
             robot.move_to("nonexistent_point_xyz")
 
-    def test_move_to_with_offset(self, robot):
+    def test_move_to_with_delta(self, robot):
         """Test moving to a point with offset."""
         robot.save_point("offset_test")
         # Small offset from current position
-        robot.move_to("offset_test", offset=[0, 0, 0.001, 0, 0, 0], vel=0.1, acc=0.1)
+        robot.move_to("offset_test", delta=[0, 0, 0.001, 0, 0, 0], vel=0.1, acc=0.1)
 
     def test_export_import_points(self, robot, tmp_path):
         """Test exporting and importing points."""

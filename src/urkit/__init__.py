@@ -58,7 +58,7 @@ from urkit.gripper.presets import (
     ROBOTIQ_HAND_E,
 )
 from urkit.motion import FreedriveMode
-from urkit.robot import URRobot
+from urkit.robot import GLOBAL, URRobot
 
 __all__ = [
     # Version
@@ -66,6 +66,8 @@ __all__ = [
 
     # Core class
     "URRobot",
+    # IK reference sentinel (per-call ik_reference=GLOBAL)
+    "GLOBAL",
     # Gripper
     "Gripper",
     "GripperPreset",
