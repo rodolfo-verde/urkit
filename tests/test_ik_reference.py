@@ -19,7 +19,7 @@ from unittest.mock import MagicMock
 import pytest
 
 import urkit
-from urkit.exceptions import MotionError
+from urkit.exceptions import MotionError, PointError
 from urkit.robot import GLOBAL, URRobot, _GlobalIKReference
 
 POSE = [0.5, 0.0, 0.3, 0.0, 0.0, 0.0]
@@ -164,6 +164,27 @@ class TestMoveTo:
     def test_default_with_linear_is_allowed(self, robot: URRobot) -> None:
         robot.move_to("p", linear=True)
         robot._motion.movel.assert_called_once()
+
+
+class TestResolveNamedReference:
+    """The real resolver (not the fixture spy): a named reference with
+    no points DB must fail hard, not warn and fall back to current
+    joints."""
+
+    def test_named_reference_without_points_db_raises(self, robot: URRobot) -> None:
+        del robot._resolve_ik_reference  # restore the class method
+        with pytest.raises(PointError, match="points DB"):
+            robot._resolve_ik_reference("home")
+
+    def test_named_reference_with_points_db_resolves(self, robot: URRobot) -> None:
+        del robot._resolve_ik_reference  # restore the class method
+        robot._points = MagicMock()
+        robot._points.get.return_value = SimpleNamespace(pose=POSE)
+        assert robot._resolve_ik_reference("home") == [1.0] * 6
+
+    def test_current_reference_needs_no_points_db(self, robot: URRobot) -> None:
+        del robot._resolve_ik_reference  # restore the class method
+        assert robot._resolve_ik_reference("current") == [0.0] * 6
 
 
 class TestMoveSequence:

@@ -132,11 +132,12 @@ class TestResolveIkReference:
         result = robot._resolve_ik_reference(joints)
         assert result == joints
 
-    def test_no_points_db_falls_back(self, robot, mock_rtde_r, caplog):
-        """When points DB is None, should fall back to current joints."""
+    def test_no_points_db_raises(self, robot, mock_rtde_r):
+        """A named reference with no points DB fails hard: a configured
+        posture reference must not silently become current joints."""
         robot._points = None
-        result = robot._resolve_ik_reference("home")
-        assert result == list(mock_rtde_r.getActualQ())
+        with pytest.raises(PointError, match="points DB"):
+            robot._resolve_ik_reference("home")
 
 
 # ------------------------------------------------------------------

@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Changed
+- A named `ik_reference` with no points DB configured now raises `PointError` immediately instead of warning and falling back to current joint positions: a configured posture reference cannot silently become a no-op
 - `URRobot.move_relative()` keyword parameters `delta_x`, `delta_y`, `delta_z`, `delta_rx`, `delta_ry`, `delta_rz` renamed to `dx`, `dy`, `dz`, `drx`, `dry`, `drz`. This matches the element names the `delta` list already uses in the docs (`[dx, dy, dz, drx, dry, drz]`) and the abbreviated `vel`/`acc` style. Breaking: old names now raise `TypeError`
 - `move_to()`, `get_point()`, and `get_current_point()`: the `offset` list parameter renamed to `delta`, and `offset_x`/`offset_y`/`offset_z`/`offset_rx`/`offset_ry`/`offset_rz` renamed to `dx`/`dy`/`dz`/`drx`/`dry`/`drz`. Every shift in the motion API now uses one pattern: `delta=[x, y, z, rx, ry, rz]` or `dx`..`drz` plus `frame=`. `Point.with_offset()` renamed to `Point.with_delta()`. The `tcp_offset` property is unchanged (it is the persisted TCP calibration, not a motion delta). Breaking
 - `move_until_contact()` and `move_velocity()`: `speed_vector` renamed to `velocity`, and `speed_x`/`speed_y`/`speed_z`/`speed_rx`/`speed_ry`/`speed_rz` renamed to `vx`/`vy`/`vz`/`vrx`/`vry`/`vrz`. The v prefix is the standard velocity notation, pairing with d for deltas. Docstring element names fixed in the same pass (`vRoll`/`vPitch`/`dYaw` were wrong). Breaking

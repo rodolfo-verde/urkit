@@ -1439,12 +1439,11 @@ class URRobot:
         if isinstance(ik_reference, str):
             # Try to look up as a named point
             if self._points is None:
-                logger.warning(
-                    "ik_reference='%s': points DB not configured, "
-                    "falling back to current joint positions.",
-                    ik_reference,
+                raise PointError(
+                    f"ik_reference='{ik_reference}': points DB is not "
+                    "configured. Set points_db before using named "
+                    "references, or pass 'current' / a 6-joint list."
                 )
-                return list(self._rtde_r.getActualQ())
 
             point = self._points.get(ik_reference)
             if point is None:
