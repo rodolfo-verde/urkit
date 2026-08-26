@@ -9,9 +9,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 - Windows CLI support is now official: the "not fully tested" startup warning is removed from `urkit teach` and `urkit points`, and the README platform section lists Linux and Windows as fully supported (macOS runs the same POSIX code path as Linux)
+- Teach pendant: TCP position now displays in millimeters (e.g. `X= -127.0`) to match the step size and gripper units. The "moving to point" screen follows the same convention
+- Teach pendant: screen frame widened from 72 to 92 columns and the key reference is now a column grid: every yellow key in MOVE/ORIENT/STEP/GRIPPER/POINTS/OTHER lines up in the same column, and no row carries more than three units (POINTS splits its five keys across two lines). The "moving to point" screen uses the same frame width
+- Teach pendant: footer grid drops M, N, and 0 (inline hints on the Frame, Go To, and Speed status rows cover them, same pattern as the gripper [6]/[7] hints) and swaps 3 for F: the freedrive status row always hints both keys inline, so the footer carries the primary freedrive key instead of the axis picker. The freedrive row hint now reads `[F: cycle, 3: axes]` when OFF and `[3: axes, F: cycle]` when ON: F cycles OFF → ALL → XYZ → OFF (so it says "cycle", not "off")
+- Teach pendant: step key descriptions drop their units (`1: Linear`, `2: Angular`), since the 1/2 input prompts already show them, and the grid column widths tighten to fit the longest remaining unit
 
 ### Fixed
+- Teach pendant: ESC (or an empty Enter) in the step size, gripper position/speed/force, and speed slider prompts now shows "Cancelled" instead of "Invalid ... value". A cancelled input returns None from `_read_input()`, which was passed to `float()` and its `TypeError` misreported as invalid input
 - Type annotations from the 0.5.0 changes that mypy flagged: `_resolve_ik_reference()` now accepts the GLOBAL sentinel type and raises a descriptive `MotionError` if the sentinel is ever resolved directly, and `_next_freedrive_step()` is typed `tuple[bool, FreedriveMode | list[int] | None]` instead of `tuple[bool, object]`, with the caller raising if the cycle returns no mode
+- Teach pendant header centering: `str.center()` was applied after the ANSI color wrap, so escape bytes counted as width and the title lines sat off-center. Plain text is centered first, then colored
+- Teach pendant status alignment: X/Y/Z, R/P/Y, and J1-J6 values use fixed-width fields so the three rows share the same columns
 
 ## [0.5.0] 2026-08-25
 

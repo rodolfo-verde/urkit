@@ -120,20 +120,20 @@ def _joint_color(deg: float, joint_idx: int) -> str:
         ANSI color string (red, yellow, or empty).
     """
     if joint_idx >= len(_JOINT_LIMITS_DEG):
-        return f"{deg:+5.1f}"
+        return f"{deg:+6.1f}"
     min_deg, max_deg = _JOINT_LIMITS_DEG[joint_idx]
     total_range = max_deg - min_deg
     warn_margin = total_range * (_JOINT_WARN_PCT / 100.0)
     danger_margin = total_range * (_JOINT_DANGER_PCT / 100.0)
     if deg <= min_deg + danger_margin:
-        return red(f"{deg:+5.1f}")
+        return red(f"{deg:+6.1f}")
     elif deg <= min_deg + warn_margin:
-        return yellow(f"{deg:+5.1f}")
+        return yellow(f"{deg:+6.1f}")
     elif deg >= max_deg - danger_margin:
-        return red(f"{deg:+5.1f}")
+        return red(f"{deg:+6.1f}")
     elif deg >= max_deg - warn_margin:
-        return yellow(f"{deg:+5.1f}")
-    return f"{deg:+5.1f}"
+        return yellow(f"{deg:+6.1f}")
+    return f"{deg:+6.1f}"
 
 def _compute_vel_acc(
     linear_step: float,
@@ -194,6 +194,17 @@ def _validate_ip(ip: str) -> bool:
 # UI rendering
 # ------------------------------------------------------------------
 
+def _key_unit(key: str, desc: str, width: int) -> str:
+    """Build one key reference unit: yellow key, plain description.
+
+    The whole unit is padded to a fixed visible width so the grid
+    columns hold, but only the key itself is colored. Padding is applied
+    to the plain text before the ANSI wrap: padding after the wrap would
+    count the escape bytes as width and collapse the column alignment.
+    """
+    unit = f"{key}: {desc}".ljust(width)
+    return yellow(key) + unit[len(key):]
+
 def _draw_moving_screen(
     robot: URRobot,
     name: str,
@@ -211,7 +222,7 @@ def _draw_moving_screen(
     Returns:
         (new_max_progress, bar_string) — caller updates max_progress for next frame.
     """
-    width = 72
+    width = 92  # matches _draw_screen frame width
     try:
         pose = robot.get_current_point()
         joints = robot.get_joint_positions()
@@ -239,11 +250,11 @@ def _draw_moving_screen(
     sys.stdout.write("\033[2J\033[1;1H")
     sys.stdout.write("\n".join([
         dim("=" * width),
-        cyan(f"  === MOVING TO '{name}' ({mode_label}) ===").center(width),
+        cyan(f"=== MOVING TO '{name}' ({mode_label}) ===".center(width)),
         dim("=" * width),
         "",
-        f"  {blue('Position:')}  X={pose[0]:+.3f}  Y={pose[1]:+.3f}  Z={pose[2]:+.3f}",
-        f"  {blue('Orient:')}    R={math.degrees(pose[3]):+.1f}°  P={math.degrees(pose[4]):+.1f}°  Y={math.degrees(pose[5]):+.1f}°",
+        f"  {blue('Position (mm):')} X={pose[0]*1000:+7.1f}  Y={pose[1]*1000:+7.1f}  Z={pose[2]*1000:+7.1f}",
+        f"  {blue('Orient:')}        R={math.degrees(pose[3]):+7.1f}°  P={math.degrees(pose[4]):+7.1f}°  Y={math.degrees(pose[5]):+7.1f}°",
         "",
         f"  {blue('J1-J3:')}  J1={math.degrees(joints[0]):+6.1f}°  J2={math.degrees(joints[1]):+6.1f}°  J3={math.degrees(joints[2]):+6.1f}°",
         f"  {blue('J4-J6:')}  J4={math.degrees(joints[3]):+6.1f}°  J5={math.degrees(joints[4]):+6.1f}°  J6={math.degrees(joints[5]):+6.1f}°",
@@ -299,8 +310,11 @@ def _draw_screen(
     - Header with title
     - Status section (position, orientation, speed, gripper)
     - Control reference (key bindings)
+
+    Frame is 92 columns wide: sized for the key reference grid in the
+    footer (see below).
     """
-    width = 72
+    width = 92
 
     # Get live telemetry
     try:
@@ -328,20 +342,27 @@ def _draw_screen(
     lines: list[str] = []
 
     # Header
+    # Center the plain text first: str.center() counts the ANSI escape
+    # bytes as width, which shifts the visible text off-center when the
+    # color wrap is applied before centering.
     lines.append(dim("=" * width))
-    lines.append(cyan("  === URKit Teach Pendant ===").center(width))
-    lines.append(dim(f"  urkit {__version__}").center(width))
-    lines.append(cyan(f"  IP: {robot.ip}").center(width))
+    lines.append(cyan("=== URKit Teach Pendant ===".center(width)))
+    lines.append(dim(f"urkit {__version__}".center(width)))
+    lines.append(cyan(f"IP: {robot.ip}".center(width)))
     if expert_mode:
-        lines.append(yellow("  EXPERT MODE").center(width))
+        lines.append(yellow("EXPERT MODE".center(width)))
     else:
-        lines.append(green("  SAFE MODE").center(width))
+        lines.append(green("SAFE MODE".center(width)))
 
     # Status section
     lines.append("")
     lw = 13  # label width for left alignment
-    lines.append(f" {blue('Position'.ljust(lw))} X={pose[0]:+5.3f}  Y={pose[1]:+5.3f}  Z={pose[2]:+5.3f}")
-    lines.append(f" {blue('Orientation'.ljust(lw))} R={math.degrees(pose[3]):+5.1f}  P={math.degrees(pose[4]):+5.1f}  Y={math.degrees(pose[5]):+5.1f}")
+    # Value fields are sized so each "label=value" token is 9 visible
+    # chars wide (X= + 7, R= + 7, J1= + 6), keeping the X/Y/Z, R/P/Y,
+    # and J1-J6 columns aligned across rows. Position is shown in mm
+    # to match the step size and gripper units.
+    lines.append(f" {blue('Position (mm)'.ljust(lw))} X={pose[0]*1000:+7.1f}  Y={pose[1]*1000:+7.1f}  Z={pose[2]*1000:+7.1f}")
+    lines.append(f" {blue('Orientation'.ljust(lw))} R={math.degrees(pose[3]):+7.1f}  P={math.degrees(pose[4]):+7.1f}  Y={math.degrees(pose[5]):+7.1f}")
     j = [math.degrees(j) for j in joints]
     lines.append(f" {blue('Joints'.ljust(lw))} J1={_joint_color(j[0], 0)}  J2={_joint_color(j[1], 1)}  J3={_joint_color(j[2], 2)}")
     lines.append(f" {'':>{lw}} J4={_joint_color(j[3], 3)}  J5={_joint_color(j[4], 4)}  J6={_joint_color(j[5], 5)}")
@@ -381,10 +402,10 @@ def _draw_screen(
             label = mode.name
         lines.append(
             f" {blue('Freedrive:'.ljust(lw))} {green('ON')} ({label}) "
-            f"{dim('[3: select axes]')}"
+            f"{dim('[3: axes, F: cycle]')}"
         )
     else:
-        lines.append(f" {blue('Freedrive:'.ljust(lw))} {red('OFF')} {dim('[F: OFF/ALL/XYZ]')}")
+        lines.append(f" {blue('Freedrive:'.ljust(lw))} {red('OFF')} {dim('[F: cycle, 3: axes]')}")
     slider_pct = int(state["speed_slider"] * 100)
     slider_color = green if state["speed_slider"] >= 0.5 else yellow if state["speed_slider"] >= 0.2 else red
     lines.append(f" {blue('Speed:'.ljust(lw))} {slider_color(f'{slider_pct}%')} {dim('[0: set]')}")
@@ -404,68 +425,54 @@ def _draw_screen(
 
     lines.append(dim("-" * width))
 
-    # Control reference
-    lines.append(f"  {yellow('MOVE:')}    {yellow('W/S')}: ±X  {yellow('A/D')}: ±Y  {yellow('Q/E')}: ±Z")
-    lines.append(f"  {yellow('ORIENT:')}  {yellow('U/O')}: ±Roll  {yellow('I/K')}: ±Pitch  {yellow('J/L')}: ±Yaw")
-    lines.append(f"  {yellow('STEP:')}    {yellow('1')}: Linear (mm)  {yellow('2')}: Angular (°)  {yellow('.')}: Reset")
+    # Control reference: a key grid. Each "key: description" unit is padded
+    # to a fixed visible width (12 / 11 / 11 with 2-space gaps) so every
+    # yellow key lines up in the same column. No row carries more than
+    # three units: POINTS splits its five keys across two lines. Step
+    # descriptions drop their units: the 1/2 input prompts already show
+    # them.
+    lines.append(
+        "  " + yellow("MOVE:".ljust(8)) + " "
+        + _key_unit("W/S", "±X", 12) + "  " + _key_unit("A/D", "±Y", 11) + "  " + yellow("Q/E") + ": ±Z"
+    )
+    lines.append(
+        "  " + yellow("ORIENT:".ljust(8)) + " "
+        + _key_unit("U/O", "±Roll", 12) + "  " + _key_unit("I/K", "±Pitch", 11) + "  " + yellow("J/L") + ": ±Yaw"
+    )
+    lines.append(
+        "  " + yellow("STEP:".ljust(8)) + " "
+        + _key_unit("1", "Linear", 12) + "  " + _key_unit("2", "Angular", 11) + "  " + yellow(".") + ": Reset"
+    )
     if robot.gripper is not None:
-        lines.append(f"  {yellow('GRIPPER:')} {yellow('X')}: Open  {yellow('C')}: Close  {yellow('V')}: Position")
-    lines.append(f"  {yellow('POINTS:')}  {yellow('B')}: Save  {yellow('G')}: Go To  {yellow('H')}: Delete  {yellow('R')}: Rename  {yellow('P')}: Explorer")
-    lines.append(f"  {yellow('OTHER:')}   {yellow('F')}: Freedrive  {yellow('3')}: Axes  {yellow('M')}: Frame  {yellow('N')}: Cart/Joint  {yellow('T')}: TCP")
-    lines.append(f"  {yellow('      ')}   {yellow('0')}: Speed  {yellow('Y')}: Save Config")
-    lines.append(f"  {yellow('EXIT:')}    {yellow('ESC')}")
+        lines.append(
+            "  " + yellow("GRIPPER:".ljust(8)) + " "
+            + _key_unit("X", "Open", 12) + "  " + _key_unit("C", "Close", 11) + "  " + yellow("V") + ": Position"
+        )
+    lines.append(
+        "  " + yellow("POINTS:".ljust(8)) + " "
+        + _key_unit("B", "Save", 12) + "  " + _key_unit("G", "Go To", 11) + "  " + yellow("H") + ": Delete"
+    )
+    # Second POINTS line continues the grid in columns 1-2 so no row
+    # carries more than three units.
+    lines.append(
+        "  " + " " * 9
+        + _key_unit("R", "Rename", 12) + "  " + yellow("P") + ": Explorer"
+    )
+    # M, N, and 0 are not listed here: they carry inline hints on the
+    # Frame, Go To, and Speed status rows (same pattern as the
+    # gripper [6]/[7] hints). 3 (freedrive axes) is also not listed: the
+    # freedrive status row always hints it next to F.
+    lines.append(
+        "  " + yellow("OTHER:".ljust(8)) + " "
+        + _key_unit("F", "Freedrive", 12) + "  " + _key_unit("T", "TCP", 11) + "  " + yellow("Y") + ": Save Config"
+    )
+    lines.append("  " + yellow("EXIT:".ljust(8)) + " " + yellow("ESC"))
     lines.append(dim("=" * width))
 
     # Clear and redraw
     sys.stdout.write("\033[2J\033[1;1H")
     sys.stdout.write("\n".join(lines) + "\n")
     sys.stdout.flush()
-
-
-def _draw_help() -> None:
-    """Print the full help overlay."""
-    width = 72
-    lines: list[str] = []
-
-    lines.append("=" * width)
-    lines.append("  === URKit Teach Pendant: Help ===".center(width))
-    lines.append("=" * width)
-    lines.append("")
-    lines.append("  MOVE:")
-    lines.append("    W/S    → X ± move")
-    lines.append("    A/D    → Y ± move")
-    lines.append("    Q/E    → Z ± move")
-    lines.append("    U/O    → Roll ± move")
-    lines.append("    I/K    → Pitch ± move")
-    lines.append("    J/L    → Yaw ± move")
-    lines.append("")
-    lines.append("  STEP SIZE:")
-    lines.append("    1      → Set linear step (default 5 mm, range 0.1–50)")
-    lines.append("    2      → Set angular step (default 0.5°, range 0.1–5)")
-    lines.append("    .      → Reset defaults")
-    lines.append("")
-    lines.append("  GRIPPER:")
-    lines.append("    X      → Open")
-    lines.append("    C      → Close")
-    lines.append("    V      → Set position (mm)")
-    lines.append("")
-    lines.append("  POINTS:")
-    lines.append("    B      → Save current pose")
-    lines.append("    G      → Go to saved point (cartesian/joint via N)")
-    lines.append("    H      → Delete saved point")
-    lines.append("    R      → Rename saved point")
-    lines.append("    P      → Open points explorer")
-    lines.append("")
-    lines.append("  OTHER:")
-    lines.append("    F      → Cycle freedrive: OFF → ALL → XYZ+Rz → OFF")
-    lines.append("    M      → Toggle move frame: BASE / TOOL")
-    lines.append("    T      → Open TCP orient submenu (select axis direction)")
-    lines.append("    0      → Set speed slider (0-100%)")
-    lines.append("    Y      → Save config (IP, gripper, points path)")
-    lines.append("")
-    lines.append("  Exit   → ESC")
-    lines.append("=" * width)
-    print("\n".join(lines))
 
 
 # ------------------------------------------------------------------
@@ -1480,24 +1487,30 @@ def _teach_pendant(
                 # --- Step size ---
                 elif key == "1":
                     val = _read_input("  Linear step (mm): ")
-                    try:
-                        mm = float(val)  # type: ignore
-                        state["linear_step"] = max(mm / 1000, _DEFAULT_LINEAR_STEP_MIN)
-                        cap = _SAFE_LINEAR_STEP_MAX if not expert_mode else _DEFAULT_LINEAR_STEP_MAX
-                        state["linear_step"] = min(state["linear_step"], cap)
-                    except (ValueError, TypeError):
-                        messages.append("Invalid step value")
+                    if not val:  # ESC or empty input -> cancel, keep current step
+                        messages.append("Cancelled")
+                    else:
+                        try:
+                            mm = float(val)
+                            state["linear_step"] = max(mm / 1000, _DEFAULT_LINEAR_STEP_MIN)
+                            cap = _SAFE_LINEAR_STEP_MAX if not expert_mode else _DEFAULT_LINEAR_STEP_MAX
+                            state["linear_step"] = min(state["linear_step"], cap)
+                        except ValueError:
+                            messages.append("Invalid step value")
                     command_handled = True
 
                 elif key == "2":
                     val = _read_input("  Angular step (degrees): ")
-                    try:
-                        deg = float(val)  # type: ignore
-                        state["angular_step"] = max(math.radians(deg), _DEFAULT_ANGULAR_STEP_MIN)
-                        cap = _SAFE_ANGULAR_STEP_MAX if not expert_mode else _DEFAULT_ANGULAR_STEP_MAX
-                        state["angular_step"] = min(state["angular_step"], cap)
-                    except (ValueError, TypeError):
-                        messages.append("Invalid step value")
+                    if not val:
+                        messages.append("Cancelled")
+                    else:
+                        try:
+                            deg = float(val)
+                            state["angular_step"] = max(math.radians(deg), _DEFAULT_ANGULAR_STEP_MIN)
+                            cap = _SAFE_ANGULAR_STEP_MAX if not expert_mode else _DEFAULT_ANGULAR_STEP_MAX
+                            state["angular_step"] = min(state["angular_step"], cap)
+                        except ValueError:
+                            messages.append("Invalid step value")
                     command_handled = True
 
                 elif key == ".":
@@ -1588,14 +1601,17 @@ def _teach_pendant(
                     if robot.gripper:
                         prompt = "  Gripper position (0-100%): "
                         val = _read_input(prompt)
-                        try:
-                            percent = float(val)  # type: ignore
-                            robot.gripper.set_position_percent(int(percent))  # type: ignore
-                            messages.append(f"Gripper set to {int(percent)}%")
-                        except (ValueError, TypeError):
-                            messages.append("Invalid position value")
-                        except Exception as e:
-                            messages.append(f"Gripper error: {e}")
+                        if not val:
+                            messages.append("Cancelled")
+                        else:
+                            try:
+                                percent = float(val)
+                                robot.gripper.set_position_percent(int(percent))  # type: ignore
+                                messages.append(f"Gripper set to {int(percent)}%")
+                            except ValueError:
+                                messages.append("Invalid position value")
+                            except Exception as e:
+                                messages.append(f"Gripper error: {e}")
                     else:
                         messages.append("No gripper configured")
                     command_handled = True
@@ -1603,14 +1619,17 @@ def _teach_pendant(
                 elif key == "6":
                     if robot.gripper and hasattr(robot.gripper, 'set_speed'):
                         val = _read_input("  Gripper speed (0-100): ")
-                        try:
-                            speed = float(val)  # type: ignore
-                            robot.gripper.set_speed(max(0, min(speed, 100)))
-                            messages.append(f"Gripper speed set to {speed:.0f}")
-                        except (ValueError, TypeError):
-                            messages.append("Invalid speed value")
-                        except Exception as e:
-                            messages.append(f"Gripper error: {e}")
+                        if not val:
+                            messages.append("Cancelled")
+                        else:
+                            try:
+                                speed = float(val)
+                                robot.gripper.set_speed(max(0, min(speed, 100)))
+                                messages.append(f"Gripper speed set to {speed:.0f}")
+                            except ValueError:
+                                messages.append("Invalid speed value")
+                            except Exception as e:
+                                messages.append(f"Gripper error: {e}")
                     else:
                         messages.append("Speed not available for this gripper")
                     command_handled = True
@@ -1618,14 +1637,17 @@ def _teach_pendant(
                 elif key == "7":
                     if robot.gripper and hasattr(robot.gripper, 'set_force'):
                         val = _read_input("  Gripper force (0-100): ")
-                        try:
-                            force = float(val)  # type: ignore
-                            robot.gripper.set_force(max(0, min(force, 100)))
-                            messages.append(f"Gripper force set to {force:.0f}")
-                        except (ValueError, TypeError):
-                            messages.append("Invalid force value")
-                        except Exception as e:
-                            messages.append(f"Gripper error: {e}")
+                        if not val:
+                            messages.append("Cancelled")
+                        else:
+                            try:
+                                force = float(val)
+                                robot.gripper.set_force(max(0, min(force, 100)))
+                                messages.append(f"Gripper force set to {force:.0f}")
+                            except ValueError:
+                                messages.append("Invalid force value")
+                            except Exception as e:
+                                messages.append(f"Gripper error: {e}")
                     else:
                         messages.append("Force not available for this gripper")
                     command_handled = True
@@ -1650,16 +1672,19 @@ def _teach_pendant(
                 # --- Speed slider ---
                 elif key == "0":
                     val = _read_input("  Speed slider (0-100%): ")
-                    try:
-                        pct = float(val)  # type: ignore
-                        factor = max(0.0, min(pct / 100.0, 1.0))
-                        robot.speed_slider = factor
-                        state["speed_slider"] = factor
-                        messages.append(f"Speed slider: {int(factor * 100)}%")
-                    except (ValueError, TypeError):
-                        messages.append("Invalid speed value")
-                    except MotionError as e:
-                        messages.append(f"Error: {e}")
+                    if not val:
+                        messages.append("Cancelled")
+                    else:
+                        try:
+                            pct = float(val)
+                            factor = max(0.0, min(pct / 100.0, 1.0))
+                            robot.speed_slider = factor
+                            state["speed_slider"] = factor
+                            messages.append(f"Speed slider: {int(factor * 100)}%")
+                        except ValueError:
+                            messages.append("Invalid speed value")
+                        except MotionError as e:
+                            messages.append(f"Error: {e}")
                     command_handled = True
 
                 # --- Save config ---
