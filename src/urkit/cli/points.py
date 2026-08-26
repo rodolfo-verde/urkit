@@ -19,7 +19,7 @@ from rich.table import Table
 from urkit import __version__
 from urkit.config import _load_config as load_config
 from urkit.cli.colors import blue, cyan, dim, yellow
-from urkit.cli.terminal import RawTerminal, read_burst, wait_input, warn_if_windows
+from urkit.cli.terminal import RawTerminal, read_burst, wait_input
 from urkit.points import Points
 
 
@@ -29,7 +29,6 @@ def points_command(args) -> None:
     Args:
         args: Parsed arguments from argparse (with points subcommand attributes).
     """
-    warn_if_windows()
     _explore_points(args)
 
 

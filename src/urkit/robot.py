@@ -1415,7 +1415,7 @@ class URRobot:
 
     def _resolve_ik_reference(
         self,
-        ik_reference: str | list[float],
+        ik_reference: str | list[float] | _GlobalIKReference,
     ) -> list[float]:
         """Resolve an ik_reference specifier to joint angles.
 
@@ -1429,7 +1429,18 @@ class URRobot:
 
         Returns:
             6 joint angles in radians.
+
+        Raises:
+            MotionError: If ik_reference is the GLOBAL sentinel, which
+                means "use the robot's global setting" and cannot be
+                resolved to joint angles here.
         """
+        if ik_reference is GLOBAL:
+            raise MotionError(
+                "GLOBAL cannot be resolved to joint angles: it means "
+                "'use the robot's global ik_reference setting'. Pass "
+                "'current', a point name, or a 6-joint list instead."
+            )
         if ik_reference == "current":
             return list(self._rtde_r.getActualQ())
 

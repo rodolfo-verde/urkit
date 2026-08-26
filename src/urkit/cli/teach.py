@@ -35,7 +35,6 @@ from urkit.cli.terminal import (
     start_interrupt_watcher,
     stop_interrupt_watcher,
     wait_input,
-    warn_if_windows,
 )
 from urkit.config import _load_config as load_config
 from urkit.cli.connection_monitor import ConnectionMonitor
@@ -1030,7 +1029,9 @@ def _submenu_orient_tcp(
 _FD_AXIS_LABELS = ["X", "Y", "Z", "Roll", "Pitch", "Yaw"]
 
 
-def _next_freedrive_step(state: dict) -> tuple[bool, object]:
+def _next_freedrive_step(
+    state: dict,
+) -> tuple[bool, FreedriveMode | list[int] | None]:
     """Compute the F-key freedrive cycle step.
 
     The cycle is OFF -> ALL (or the last custom axes set via the 3
@@ -1514,6 +1515,11 @@ def _teach_pendant(
                             state["freedrive"] = False
                             state.pop("_fd_custom_axes", None)
                         else:
+                            if next_mode is None:
+                                raise MotionError(
+                                    "freedrive cycle returned no mode to "
+                                    "enable"
+                                )
                             if state["freedrive"]:
                                 robot.disable_freedrive()
                                 time.sleep(0.2)
@@ -1706,8 +1712,6 @@ def teach_command(args) -> None:
     Args:
         args: Parsed arguments from argparse (with teach subcommand attributes).
     """
-
-    warn_if_windows()
 
     # Configure logging
     if args.verbose:

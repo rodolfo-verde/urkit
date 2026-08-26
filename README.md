@@ -70,8 +70,8 @@ Requires Python 3.8+ and a Universal Robots e-Series (UR3e to UR30).
 
 ### Platform Support
 
-- **Linux, macOS**: fully supported
-- **Windows**: the Python library works on Windows. The interactive CLIs (`urkit teach`, `urkit points`) run on Windows but are **not fully tested and not officially supported**. A warning is printed at startup. If you hit input or console problems, use Linux, macOS, or WSL2
+- **Linux, Windows**: fully supported. The interactive CLIs (`urkit teach`, `urkit points`) are tested on both platforms
+- **macOS**: runs the same POSIX terminal code path as Linux (termios/select); there is no macOS-specific code
 
 ### Robot Setup (one-time)
 

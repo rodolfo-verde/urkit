@@ -271,20 +271,6 @@ def start_interrupt_watcher(
     return watcher
 
 
-def warn_if_windows() -> None:
-    """Print a notice when the interactive CLI runs on Windows.
-
-    Call at the top of interactive CLI commands. No-op on other
-    platforms. Windows CLI support is not fully tested.
-    """
-    if sys.platform == "win32":
-        print(
-            "Warning: Windows CLI support is not fully tested and not "
-            "officially supported. If you hit input or console problems, "
-            "use Linux, macOS, or WSL2."
-        )
-
-
 class RawTerminal:
     """Raw (cbreak, no-echo) mode for stdin.
 

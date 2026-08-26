@@ -5,6 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changed
+- Windows CLI support is now official: the "not fully tested" startup warning is removed from `urkit teach` and `urkit points`, and the README platform section lists Linux and Windows as fully supported (macOS runs the same POSIX code path as Linux)
+
+### Fixed
+- Type annotations from the 0.5.0 changes that mypy flagged: `_resolve_ik_reference()` now accepts the GLOBAL sentinel type and raises a descriptive `MotionError` if the sentinel is ever resolved directly, and `_next_freedrive_step()` is typed `tuple[bool, FreedriveMode | list[int] | None]` instead of `tuple[bool, object]`, with the caller raising if the cycle returns no mode
+
 ## [0.5.0] 2026-08-25
 
 ### Changed
