@@ -383,10 +383,10 @@ All movement and orientation keys support **hold-to-repeat**.
 The teach pendant shows live joint angles alongside TCP position and orientation:
 
 ```
- Position     X=+0.432  Y=+0.111  Z=+0.227
- Orientation  R=+131.3  P=-121.0  Y=  +8.0
- Joints       J1=+150.0  J2=+ 20.0  J3=+160.0
-              J4=+ 50.0  J5=- 80.0  J6=+157.0
+ Position (mm) X= +432.0  Y= +111.0  Z= +227.0
+ Orientation   R= +131.3  P= -121.0  Y=  +8.0
+ Joints        J1=+150.0  J2= +20.0  J3=+160.0
+               J4= +50.0  J5= -80.0  J6=+157.0
 ```
 
 Joint angles color-code proximity to mechanical limits:

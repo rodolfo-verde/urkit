@@ -330,9 +330,9 @@ def _draw_screen(
         max_mm = robot.gripper.max_travel_mm()
         extra = ""
         if hasattr(robot.gripper, '_force'):
-            extra += f" F={robot.gripper._force}{dim('[7]')}"
+            extra += f" force={robot.gripper._force}{dim(' [7]')}"
         if hasattr(robot.gripper, '_speed'):
-            extra += f" S={robot.gripper._speed}{dim('[6]')}"
+            extra += f" speed={robot.gripper._speed}{dim(' [6]')}"
         if pos_mm is not None and max_mm is not None and max_mm > 0:
             pct = int((max_mm - pos_mm) / max_mm * 100)
             gripper_state = f"{green('Connected')} {pos_mm:.1f}mm ({pct}%)" + extra
@@ -1269,6 +1269,32 @@ def _teach_pendant(
 
     messages: list[str] = []
 
+    # How long a status message stays on screen. Messages used to be
+    # cleared right after the first redraw: with freedrive the 0.5s
+    # periodic refresh then erased a fresh message before it could be
+    # read, and without freedrive messages lingered until the next
+    # keypress. The list is pruned in place (never rebound) so the
+    # _ScreenLogHandler's reference to it stays valid.
+    _MESSAGE_TTL = 15.0
+    message_set_at: float | None = None
+
+    def _pending_messages() -> list[str]:
+        """Return the on-screen messages while within the TTL.
+
+        Prunes the list once it expires; a newly appended message
+        restarts the clock on its first display.
+        """
+        nonlocal message_set_at
+        if not messages:
+            return []
+        if message_set_at is None:
+            message_set_at = time.monotonic()
+        if time.monotonic() - message_set_at > _MESSAGE_TTL:
+            messages.clear()
+            message_set_at = None
+            return []
+        return messages
+
     # Redirect logging warnings/errors into screen messages (MUST be before
     # Points creation, as it may emit warnings)
     _urkit_logger = logging.getLogger("urkit")
@@ -1376,7 +1402,7 @@ def _teach_pendant(
     try:
         try:
             _configure_terminal()
-            _draw_screen(robot, state, messages, expert_mode)
+            _draw_screen(robot, state, _pending_messages(), expert_mode)
 
             # How often to refresh the screen while in freedrive (no key pressed)
             _FREEDRIVE_REFRESH_S = 0.5
@@ -1400,7 +1426,7 @@ def _teach_pendant(
                             now = time.monotonic()
                             if now - last_refresh >= _FREEDRIVE_REFRESH_S:
                                 last_refresh = now
-                                _draw_screen(robot, state, messages, expert_mode)
+                                _draw_screen(robot, state, _pending_messages(), expert_mode)
 
                         # Check for fault detected by watchdog thread
                         if monitor.fault_detected:
@@ -1470,8 +1496,7 @@ def _teach_pendant(
                         except MotionError:
                             messages.append("Unreachable: step would exceed joint limits")
                             command_handled = True
-                            _draw_screen(robot, state, messages, expert_mode)
-                            messages = []
+                            _draw_screen(robot, state, _pending_messages(), expert_mode)
                             last_refresh = time.monotonic()
                             continue
 
@@ -1702,9 +1727,8 @@ def _teach_pendant(
 
                 # --- Redraw after movement or command ---
                 if moved or command_handled:
-                    _draw_screen(robot, state, messages, expert_mode)
+                    _draw_screen(robot, state, _pending_messages(), expert_mode)
                     last_refresh = time.monotonic()
-                    messages = []
 
         except URKitConnectionError as e:
             # Robot fault detected by monitoring thread
