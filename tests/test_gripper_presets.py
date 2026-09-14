@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import time
 
 import pytest
 
@@ -28,12 +29,24 @@ def _robot_ip() -> str | None:
     if ip:
         return ip
     try:
-        from urkit.cli.teach import _load_config
+        from urkit.config import _load_config as load_config
 
-        cfg = _load_config()
+        cfg = load_config()
         return cfg.get("robot_ip")
     except Exception:
         return None
+
+
+#: The robot takes a moment to release its RTDE registers after a
+#: disconnect; reconnecting immediately can race the release and hit
+#: the register lock. Real-robot tests settle before reconnecting.
+_RTDE_SETTLE_S = 3.0
+
+
+def _teardown(r) -> None:
+    """Disconnect and let the robot release its RTDE registers."""
+    r.disconnect()
+    time.sleep(_RTDE_SETTLE_S)
 
 
 class TestGripperPresetDataclass:
@@ -185,14 +198,14 @@ class TestURRobotPresetIntegration:
         try:
             from urkit.robot import URRobot
 
-            r = URRobot(ip=ip, auto_start=True, gripper=gripper)
+            r = URRobot(ip=ip, gripper=gripper)
         except Exception as e:
             pytest.skip(f"Failed to connect: {e}")
         try:
             actual = r.payload
             assert actual == pytest.approx(payload, rel=0.01)
         finally:
-            r.disconnect()
+            _teardown(r)
 
     def test_preset_creates_gripper(self):
         """Preset should create a robotiq gripper."""
@@ -202,7 +215,7 @@ class TestURRobotPresetIntegration:
         try:
             from urkit.robot import URRobot
 
-            r = URRobot(ip=ip, auto_start=True, gripper=ROBOTIQ_2F_85)
+            r = URRobot(ip=ip, gripper=ROBOTIQ_2F_85)
         except Exception as e:
             pytest.skip(f"Failed to connect: {e}")
         try:
@@ -211,7 +224,7 @@ class TestURRobotPresetIntegration:
 
             assert isinstance(r.gripper, RobotiqGripper)
         finally:
-            r.disconnect()
+            _teardown(r)
 
     def test_epick_cup_preset_sets_payload(self):
         """An EPick cup preset should set the computed payload on a real robot."""
@@ -222,13 +235,13 @@ class TestURRobotPresetIntegration:
         try:
             from urkit.robot import URRobot
 
-            r = URRobot(ip=ip, auto_start=True, gripper=preset)
+            r = URRobot(ip=ip, gripper=preset)
         except Exception as e:
             pytest.skip(f"Failed to connect: {e}")
         try:
             assert r.payload == pytest.approx(preset.mass, rel=0.01)
         finally:
-            r.disconnect()
+            _teardown(r)
 
     def test_from_config_resolves_epick_cup_preset(self):
         """gripper: epick-quad-l should resolve like any other preset name.
@@ -264,8 +277,8 @@ class TestURRobotPresetIntegration:
         try:
             from urkit.robot import URRobot
 
-            r = URRobot(ip=ip, auto_start=True, gripper=preset)
-            r.disconnect()
+            r = URRobot(ip=ip, gripper=preset)
+            _teardown(r)
         except Exception:
             pytest.skip("Failed to connect")
         assert preset.center_of_gravity == original_cog

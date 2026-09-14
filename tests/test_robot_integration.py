@@ -32,7 +32,7 @@ def _robot_ip() -> str | None:
         return ip
     # Fall back to config file
     try:
-        from urkit.config import load_config
+        from urkit.config import _load_config as load_config
 
         cfg = load_config()
         return cfg.get("robot_ip")
