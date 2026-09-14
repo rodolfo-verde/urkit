@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.6.0] 2026-09-14
 
 ### Added
 - `URRobot.set_held_payload(mass, center_of_gravity=None)`: add the mass of a picked-up object to the payload before moving it (the controller's gravity compensation uses the payload, so the arm sags and drifts without it). `mass=0` resets to the base payload captured at connect, never to a literal zero. The object CoG defaults to the TCP position (gripped at center) and the combined CoG is the mass-weighted average of base and object. New reads: `robot.base_payload` (gripper + tooling) and `robot.held_payload` (0 = none); `robot.payload` is the total. The teach pendant payload row shows the held mass (e.g. `1.427kg +0.050 held`), and the 9 key sets it from the pendant (`Held payload in kg (0 = reset to base)`). A manual `set_payload()` while nothing is held redefines the base payload; while a payload is held it raises (the mass would be ambiguous). Constructor `mass=` / `center_of_gravity=` / `tcp_offset=` overrides now work the same as in `from_config` (they previously leaked into the gripper backend kwargs and raised).
