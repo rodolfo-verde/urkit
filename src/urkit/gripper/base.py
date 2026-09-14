@@ -116,15 +116,18 @@ class Gripper(ABC):
         """Factory method to create a gripper backend."""
         from urkit.gripper.robotiq import RobotiqGripper
         from urkit.gripper.digital import DigitalGripper
+        from urkit.gripper.epick import EpickGripper
 
         if name == "robotiq":
             return RobotiqGripper(**kwargs)  # type: ignore[arg-type]
         elif name == "digital":
             return DigitalGripper(**kwargs)  # type: ignore[arg-type]
+        elif name == "epick":
+            return EpickGripper(**kwargs)  # type: ignore[arg-type]
         else:
             from urkit.exceptions import GripperError
 
             raise GripperError(
                 f"Unknown gripper backend: '{name}'. "
-                f"Supported backends: robotiq, digital."
+                f"Supported backends: robotiq, epick, digital."
             )

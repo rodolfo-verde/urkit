@@ -112,7 +112,7 @@ That's it. No `.urp` files to run, no extra programs needed.
 If you have a Robotiq gripper, install the **Robotiq Gripper Control** URCap first: download from [robotiq.com/support](https://robotiq.com/support), copy the `.urcap` to a USB drive, and install via `☰` → `Settings` → `System` → `URCaps`.
 
 ```python
-from urkit import URRobot, ROBOTIQ_HAND_E  # or ROBOTIQ_2F_85, ROBOTIQ_2F_140, or gripper=None
+from urkit import URRobot, ROBOTIQ_HAND_E  # or ROBOTIQ_2F_85, ROBOTIQ_2F_140, ROBOTIQ_EPICK_SINGLE_S, or gripper=None
 
 robot = URRobot(ip="192.168.1.50", points="points.db", gripper=ROBOTIQ_HAND_E)
 robot.gripper.activate()
@@ -169,7 +169,7 @@ The CLI auto-loads `config.yaml` from the current working directory. Pass `--con
 |-----|-------------|---------|
 | `robot_ip` | Robot IP address | `192.168.1.50` |
 | `points_path` | Path to SQLite points database | `points.db` |
-| `gripper` | Gripper preset name | `hand-e`, `2f-85`, `2f-140`, `digital` |
+| `gripper` | Gripper preset name | `hand-e`, `2f-85`, `2f-140`, `epick-single-s`, `digital` |
 | `ik_reference` | IK reference posture (prevents elbow flipping) | `home` |
 | `default_vel` | Default linear velocity (m/s) | `0.5` |
 | `default_acc` | Default linear acceleration (m/s²) | `0.3` |
@@ -265,8 +265,6 @@ urkit init --force                  # overwrite if exists
 
 ### Teach Mode
 
-### Teach Mode
-
 The interactive teach pendant for moving the robot, saving points, and checking telemetry:
 
 ```bash
@@ -279,10 +277,10 @@ urkit teach                          # reads IP from config.yaml
 | Flag | Description |
 |------|-------------|
 | `ip` | Robot IP address (positional, overrides config) |
-| `--gripper` | Gripper preset: `2f-85`, `2f-140`, `hand-e`, `digital`, `none` |
+| `--gripper` | Gripper preset: `2f-85`, `2f-140`, `hand-e`, `epick-single-s`, `digital`, `none` |
 | `--gripper-pin` | Digital gripper output pin (default: 0) |
-| `--gripper-force` | Robotiq force 0-100 |
-| `--gripper-speed` | Robotiq speed 0-100 |
+| `--gripper-force` | 2F grip force 0-100 (EPick: use `max_vacuum` in `gripper_config`) |
+| `--gripper-speed` | 2F movement speed 0-100 (EPick: use `grip_timeout` in `gripper_config`) |
 | `--gripper-close-on-high` | Digital polarity: `true` or `false` |
 | `--points` | Path to `points.db` file (overrides config) |
 | `--config` | Path to config file (default: `config.yaml` in project root or CWD) |
@@ -349,8 +347,8 @@ All movement and orientation keys support **hold-to-repeat**.
         <tr><td><code>X</code></td><td>Open</td></tr>
         <tr><td><code>C</code></td><td>Close</td></tr>
         <tr><td><code>V</code></td><td>Set position (mm)</td></tr>
-        <tr><td><code>6</code></td><td>Set speed (0-100)</td></tr>
-        <tr><td><code>7</code></td><td>Set force (0-100)</td></tr>
+        <tr><td><code>6</code></td><td>Set speed / grip timeout</td></tr>
+        <tr><td><code>7</code></td><td>Set force / max vacuum</td></tr>
       </table>
     </td>
     <td align="center" style="width:33%">
@@ -454,13 +452,16 @@ The constructor takes a few seconds on first call: it validates the connection, 
 
 ### Grippers
 
-Three built-in presets:
+Built-in presets:
 
 | Preset | Description |
 |--------|-------------|
 | `ROBOTIQ_HAND_E` | Robotiq Hand-E (2F-85-E) |
 | `ROBOTIQ_2F_85` | Robotiq 2F-85 |
 | `ROBOTIQ_2F_140` | Robotiq 2F-140 |
+| `ROBOTIQ_EPICK_SINGLE_S/L` | EPick + 1 cup (S = Ø40, L = Ø55) |
+| `ROBOTIQ_EPICK_DUAL_S/L` | EPick + 2-cup bracket (S = Ø40, L = Ø55) |
+| `ROBOTIQ_EPICK_QUAD_S/L` | EPick + 4-cup bracket (S = Ø40, L = Ø55) |
 
 ```python
 robot.gripper.activate()              # required before open/close (Robotiq only)
@@ -471,7 +472,7 @@ robot.gripper.open()                  # fully open (blocking by default)
 robot.gripper.close()                 # fully closed, stops on contact
 robot.gripper.open(wait=False)        # non-blocking return (waits for position)
 robot.gripper.set_position_mm(20)     # 20mm open (Robotiq only, 0 = fully closed)
-robot.gripper.set_position_percent(50) # 50% open (Robotiq only, 0 = fully open, 100 = fully closed)
+robot.gripper.set_position_percent(50) # 50% open (2F; repurposed on the EPick, see below)
 robot.gripper.set_force(50)           # grip force: 0-100 (Robotiq only)
 robot.gripper.set_speed(80)           # movement speed: 0-100 (Robotiq only)
 
@@ -516,6 +517,83 @@ robot.gripper.close()   # turn pin 3 on
 ```
 
 `set_force()` and `set_speed()` are not available for digital grippers.
+
+#### EPick Vacuum Gripper
+
+The EPick presets drive a Robotiq EPick vacuum gripper (e-Series only) over the same RS485 Robotiq protocol as the 2F series, using the legacy Robotiq ASCII commands. They require the **Robotiq Gripper Control** URCap installed (same setup as the 2F presets).
+
+The semantics are inverted compared to the 2F grippers:
+
+```python
+robot.gripper.activate()          # required before open/close
+robot.gripper.close()             # grip: pump on, wait until an object is secured
+robot.gripper.open()              # release: pump off + blow-off, wait until the object is gone
+```
+
+`close()` does not return until the gripper has confirmed a secured object (see Detection below), and raises `GripperError` if no object is detected within the grip timeout. A failed grip leaves the vacuum on, so call `open()` to release before moving again. `open()` waits until the vacuum is lost (the object has dropped).
+
+Grip parameters (set at connect time, or changed between grips):
+
+```python
+robot.gripper.set_max_vacuum(60)    # max vacuum level, 20-100% (default 60, the Robotiq URCap default)
+robot.gripper.set_min_vacuum(40)    # min vacuum level, 10% up to the max vacuum (default 40)
+robot.gripper.set_grip_timeout(30)  # grip timeout in 100 ms units, 0-100 (default 30 = 3 s)
+```
+
+The ranges are enforced at construction and on every setter (max 20-100, min 10 up to the current max, timeout 0-100), and a parameter of one backend passed to another raises `GripperError` instead of being ignored (`force`/`speed` on the EPick, `max_vacuum`/`grip_timeout` on the 2F). The same names work in `config.yaml`:
+
+```yaml
+gripper: epick-single-s
+gripper_config:
+  max_vacuum: 70
+  grip_timeout: 40
+```
+
+With `set_max_vacuum(100)` the pump runs continuously and the gripper cannot confirm a grip; keep the max vacuum below 100% (60 works for typical cups and trays). The same physics applies at lower levels: if the max vacuum is higher than a leaky seal can reach, the pump keeps hunting and never enters the stable hold phase where the secured flag appears, so the grip times out (verified: a marginal-seal object gripped at 60/40 but timed out at 80/50 and 80/30). For leaky seals keep `max_vacuum` low and `min_vacuum` at or below what the seal sustains, not the other way around.
+
+`set_position_mm()`, `get_position_mm()`, and `max_travel_mm()` are not available: the EPick has no finger travel. `set_position_percent(p)` is repurposed as a manual vacuum override: `p=0` releases, `1-100` grips at that vacuum level (bypassing the secured-object wait).
+
+**Payload and TCP.** The bare generator body is 0.706 kg, CoG `[0, 0, 0.0515]`, TCP `[0, 0, 0.113, 0, 0, 0]` (Robotiq EPick manual, Table 6-4); cups and brackets change all three. The kits ship cups in two sizes (Ø 40 mm and Ø 55 mm), so there is one preset per bracket system + cup size (configurations without cups cannot grip and have no preset):
+
+| Preset | Config / CLI name | Setup |
+|--------|-------------------|-------|
+| `ROBOTIQ_EPICK_SINGLE_S` | `epick-single-s` | 1 small (Ø40) cup on the generator port |
+| `ROBOTIQ_EPICK_SINGLE_L` | `epick-single-l` | 1 large (Ø55) cup on the generator port |
+| `ROBOTIQ_EPICK_DUAL_S` | `epick-dual-s` | 2-cup bracket, small cups |
+| `ROBOTIQ_EPICK_DUAL_L` | `epick-dual-l` | 2-cup bracket, large cups |
+| `ROBOTIQ_EPICK_QUAD_S` | `epick-quad-s` | 4-cup bracket, small cups |
+| `ROBOTIQ_EPICK_QUAD_L` | `epick-quad-l` | 4-cup bracket, large cups |
+
+```python
+from urkit import URRobot, ROBOTIQ_EPICK_SINGLE_S
+
+robot = URRobot(ip="192.168.1.50", gripper=ROBOTIQ_EPICK_SINGLE_S)
+```
+
+The TCP z of each preset is the bottom of the cups, the limiting point for approach moves. The presets use the manual's Table 6-4 for the body and bracket stack, and the official Festo datasheets for the cups Robotiq ships (VASB-40-1/4-PUR-B: 30 g / 32 mm, VASB-55-1/4-PUR-B: 39 g / 39 mm); all-small combinations reproduce Table 6-4 exactly:
+
+| Preset | Mass (kg) | CoG z (m) | TCP z (m) |
+|--------|-----------|-----------|-----------|
+| body only (reference) | 0.706 | 0.0515 | 0.113 |
+| `ROBOTIQ_EPICK_SINGLE_S` | 0.736 | 0.0547 | 0.145 |
+| `ROBOTIQ_EPICK_SINGLE_L` | 0.745 | 0.0557 | 0.152 |
+| `ROBOTIQ_EPICK_DUAL_S` | 1.116 | 0.0819 | 0.196 |
+| `ROBOTIQ_EPICK_DUAL_L` | 1.134 | 0.0837 | 0.203 |
+| `ROBOTIQ_EPICK_QUAD_S` | 1.341 | 0.0920 | 0.196 |
+| `ROBOTIQ_EPICK_QUAD_L` | 1.377 | 0.0947 | 0.203 |
+
+Bracket mass is derived (±15 g) and the Ø55 height is CAD-derived (±2 mm); if your setup is critical, measure the actual stack and pass `mass` / `center_of_gravity` / `tcp_offset` overrides, which still work:
+
+```python
+robot = URRobot(
+    ip="192.168.1.50",
+    gripper=ROBOTIQ_EPICK_SINGLE_S,
+    mass=0.74,
+    tcp_offset=[0.0, 0.0, 0.147, 0.0, 0.0, 0.0],
+)
+```
+
+**Detection.** The EPick runs in advanced mode (rMOD=1): the pump reaches the max vacuum level, stops, and the vacuum decays back to the min level. An object is only "secured" while the vacuum is actually held there, so `close()` returns as soon as that secured state is observed on the gripper's object flag. With nothing under the suction cup the vacuum collapses and the secured state never occurs, so `close()` times out and raises `GripperError` after the grip timeout (set via `grip_timeout`). In automatic mode (rMOD=0) the EPick reports a short "seemingly constant" vacuum as an object, which false-positives with no object on the cup, so urkit does not use it.
 
 ### Points & Motion
 

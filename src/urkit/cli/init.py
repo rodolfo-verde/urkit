@@ -29,7 +29,7 @@ robot_ip: 192.168.1.50
 points_path: points.db
 
 # Gripper preset (optional)
-# Built-in: hand-e, 2f-85, 2f-140
+# Built-in: hand-e, 2f-85, 2f-140, epick-<system>-<cup> (e.g. epick-quad-l)
 # Digital I/O: digital
 # Omit or set to none for no gripper
 gripper: none
@@ -41,10 +41,17 @@ gripper_config:
     # center_of_gravity: [0.0, 0.0, 0.0]  # [x, y, z] in meters
     # tcp_offset: [0.0, 0.0, 0.175, 0.0, 0.0, 0.0]  # [x, y, z, rx, ry, rz]
 
-    # Robotiq-specific (hand-e, 2f-85, 2f-140)
+    # 2F grippers (hand-e, 2f-85, 2f-140)
     # force: 100  # grip force 0-100
     # speed: 100  # movement speed 0-100
     # max_mm: 85  # max finger travel (e.g. 85 for 2F-85)
+
+    # EPick (vacuum): max_vacuum 20-100, min_vacuum 10 up to max_vacuum,
+    # grip_timeout 0-100 (x100 ms). A 2F param (force/speed) on an EPick
+    # preset raises an error and vice versa.
+    # max_vacuum: 60
+    # min_vacuum: 40
+    # grip_timeout: 30
 
     # Digital gripper
     # pin: 0  # digital output pin

@@ -52,6 +52,21 @@ class DigitalGripper(Gripper):
         closed_when_high: bool = True,
         **kwargs: object,  # robot_ip passed by factory but not used
     ) -> None:
+        unknown = {k for k in kwargs if k != "robot_ip"}
+        if unknown:
+            cross = unknown & {
+                "force", "speed", "max_vacuum", "min_vacuum", "grip_timeout",
+            }
+            if cross:
+                raise GripperError(
+                    f"{' and '.join(sorted(cross))} are Robotiq gripper "
+                    "parameters. The digital I/O gripper uses pin and "
+                    "closed_when_high only."
+                )
+            raise GripperError(
+                f"Unknown digital gripper parameter(s): "
+                f"{' and '.join(sorted(unknown))}. Valid: pin, closed_when_high."
+            )
         self._rtde_c = rtde_control
         self._rtde_r = rtde_receive
         self._pin = pin

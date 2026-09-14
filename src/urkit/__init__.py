@@ -55,6 +55,12 @@ from urkit.gripper.presets import (
     PRESETS,
     ROBOTIQ_2F_85,
     ROBOTIQ_2F_140,
+    ROBOTIQ_EPICK_DUAL_L,
+    ROBOTIQ_EPICK_DUAL_S,
+    ROBOTIQ_EPICK_QUAD_L,
+    ROBOTIQ_EPICK_QUAD_S,
+    ROBOTIQ_EPICK_SINGLE_L,
+    ROBOTIQ_EPICK_SINGLE_S,
     ROBOTIQ_HAND_E,
 )
 from urkit.motion import FreedriveMode
@@ -76,6 +82,12 @@ __all__ = [
     "ROBOTIQ_2F_85",
     "ROBOTIQ_2F_140",
     "ROBOTIQ_HAND_E",
+    "ROBOTIQ_EPICK_SINGLE_S",
+    "ROBOTIQ_EPICK_SINGLE_L",
+    "ROBOTIQ_EPICK_DUAL_S",
+    "ROBOTIQ_EPICK_DUAL_L",
+    "ROBOTIQ_EPICK_QUAD_S",
+    "ROBOTIQ_EPICK_QUAD_L",
     # Freedrive mode
     "FreedriveMode",
     # Move frame

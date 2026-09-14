@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+- `EpickGripper` backend: Robotiq EPick vacuum gripper (e-Series only) over the same RS485 Robotiq protocol as the 2F series, using the legacy Robotiq ASCII commands (requires the Robotiq Gripper Control URCap, same as the 2F presets). Semantics are inverted from the 2F: `close()` grips (pump on) and blocks until the gripper confirms a secured object, raising `GripperError` if nothing is under the suction cup when the grip timeout expires (a failed grip leaves the vacuum on; call `open()` to release); `open()` releases (pump off + blow-off) and waits until the vacuum is lost. Grip parameters: `max_vacuum` = max vacuum level 20-100% (default 60, the Robotiq URCap default; 100 runs the pump continuously and cannot confirm a grip), `min_vacuum` = min vacuum 10% up to the max (default 40), `grip_timeout` = grip timeout in 100 ms units (default 30 = 3 s); the ranges are enforced at construction and on every setter, and a parameter of one backend passed to another raises `GripperError` instead of being ignored. `set_position_percent(p)` is repurposed as a manual vacuum override (0 = release, 1-100 = grip at that level, bypassing the secured-object wait). Detection runs the EPick in advanced mode (rMOD=1) and confirms the secured-to-min object flag, which the EPick only sets while the vacuum is actually held: automatic mode (rMOD=0) false-positives on a short "seemingly constant" vacuum with no object on the cup, so urkit does not use it
+- Six EPick cup presets, one per bracket system + cup size: `ROBOTIQ_EPICK_SINGLE_S/L`, `ROBOTIQ_EPICK_DUAL_S/L`, `ROBOTIQ_EPICK_QUAD_S/L` (S = Ø40, L = Ø55; config/CLI names like `epick-quad-l`). Mass, CoG, and TCP come from the manual's Table 6-4 (body + bracket stack) and the official Festo datasheets for the cups Robotiq ships (VASB-40-1/4-PUR-B: 30 g / 32 mm, VASB-55-1/4-PUR-B: 39 g / 39 mm); all-small presets reproduce Table 6-4 exactly, and each TCP z is the bottom of the cups. Configurations without cups cannot grip and have no preset (pass mass overrides during setup). The teach pendant gripper row now shows the EPick parameters (`vac=` max vacuum, `min=`, `to=` timeout)
+
+### Changed
+- `URRobot` no longer swallows gripper construction errors: a bad gripper parameter (out of range, or belonging to a different backend) now raises `GripperError` at connect time instead of logging a warning and continuing without a gripper
+
+### Fixed
+- Test suite: `test_speed_out_of_range_raises` was defined twice in `TestRobotiqGripper`; the second definition shadowed the first, so the constructor speed-range test never ran. Renamed to `test_init_speed_out_of_range_raises`
+
 ## [0.5.1] 2026-08-26
 
 ### Changed

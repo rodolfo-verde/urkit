@@ -36,7 +36,11 @@ from urkit.exceptions import (
 )
 from urkit.geometry import MoveFrame, transform_pose_delta
 from urkit.gripper.base import Gripper
-from urkit.gripper.presets import DigitalGripperConfig, GripperPreset, PRESETS
+from urkit.gripper.presets import (
+    DigitalGripperConfig,
+    GripperPreset,
+    PRESETS,
+)
 from urkit.io import IO
 from urkit.motion import FreedriveMode, Motion
 from urkit.points import Point, Points
@@ -166,7 +170,10 @@ class URRobot:
             Can be changed at runtime via the ``ik_reference`` property.
         gripper_kwargs: Additional kwargs passed to the gripper backend
             to override preset values (e.g. ``max_mm=80`` for custom
-            fingers, ``force=50``, ``speed=80`` for Robotiq).
+            fingers, ``force=50``, ``speed=80`` for the 2F,
+            ``max_vacuum=70``, ``grip_timeout=40`` for the EPick).
+            A parameter of one backend passed to another raises
+            ``GripperError`` instead of being ignored.
 
     Example:
         >>> from urkit import URRobot, ROBOTIQ_2F_85
@@ -328,45 +335,33 @@ class URRobot:
             default_acc=default_acc,
         )
 
-        # Gripper
+        # Gripper. Construction is pure (no robot I/O), so an error
+        # here is a configuration error and must fail loudly.
         self._gripper: Gripper | None = None
         if gripper_backend is not None:
-            try:
-                # Merge preset defaults with user overrides.
-                if isinstance(gripper, GripperPreset):
-                    effective_kwargs = {
-                        "max_mm": gripper.max_mm,
-                        "force": gripper.force,
-                        "speed": gripper.speed,
-                        **gripper_kwargs,
-                    }
-                else:
-                    effective_kwargs = gripper_kwargs
-
-                effective_kwargs["rtde_control"] = self._rtde_c
-                effective_kwargs["rtde_receive"] = self._rtde_r
-                effective_kwargs["robot_ip"] = self._ip
-                self._gripper = Gripper.create(gripper_backend, **effective_kwargs)
-            except Exception as e:
-                logger.warning(
-                    "Failed to create gripper (%s): %s. Continuing without.",
-                    gripper_backend, e,
-                )
-        elif isinstance(gripper, DigitalGripperConfig):
-            try:
-                self._gripper = Gripper.create(
-                    "digital",
-                    rtde_control=self._rtde_c,
-                    rtde_receive=self._rtde_r,
-                    robot_ip=self._ip,
-                    pin=gripper.pin,
-                    closed_when_high=gripper.close_on_high,
+            # Merge preset defaults with user overrides.
+            if isinstance(gripper, GripperPreset):
+                effective_kwargs = {
+                    **gripper.backend_kwargs(),
                     **gripper_kwargs,
-                )
-            except Exception as e:
-                logger.warning(
-                    "Failed to create digital gripper: %s. Continuing without.", e,
-                )
+                }
+            else:
+                effective_kwargs = gripper_kwargs
+
+            effective_kwargs["rtde_control"] = self._rtde_c
+            effective_kwargs["rtde_receive"] = self._rtde_r
+            effective_kwargs["robot_ip"] = self._ip
+            self._gripper = Gripper.create(gripper_backend, **effective_kwargs)
+        elif isinstance(gripper, DigitalGripperConfig):
+            self._gripper = Gripper.create(
+                "digital",
+                rtde_control=self._rtde_c,
+                rtde_receive=self._rtde_r,
+                robot_ip=self._ip,
+                pin=gripper.pin,
+                closed_when_high=gripper.close_on_high,
+                **gripper_kwargs,
+            )
 
         # Set TCP offset and payload (resolved values)
         if resolved_tcp is not None:
@@ -903,7 +898,7 @@ class URRobot:
     @property
     def tcp_offset(self) -> list[float]:
         """Current TCP offset [x, y, z, rx, ry, rz] in meters/radians."""
-        return self._rtde_r.getToolVector()
+        return list(self._rtde_c.getTCPOffset())
 
     @tcp_offset.setter
     def tcp_offset(self, tcp_offset: list[float]) -> None:

@@ -65,6 +65,19 @@ class RobotiqGripper(Gripper):
             raise GripperError(
                 "RobotiqGripper requires rtde_control (RTDEControlInterface)."
             )
+        unknown = {k for k in kwargs if k not in ("rtde_receive", "robot_ip")}
+        if unknown:
+            cross = unknown & {"max_vacuum", "min_vacuum", "grip_timeout"}
+            if cross:
+                raise GripperError(
+                    f"{' and '.join(sorted(cross))} are EPick vacuum-gripper "
+                    "parameters. The 2F uses force and speed instead."
+                )
+            raise GripperError(
+                f"Unknown 2F gripper parameter(s): "
+                f"{' and '.join(sorted(unknown))}. Valid: force, speed, "
+                "max_mm, pin, close_on_high."
+            )
         if not 0 <= force <= 100:
             raise GripperError(
                 f"Robotiq gripper force must be 0-100, got {force}."

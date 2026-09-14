@@ -50,7 +50,9 @@ from urkit.exceptions import (
     URKitConnectionError as ConnectionError,
 )
 from urkit.geometry import MoveFrame, orient_tcp, transform_pose_delta
+from urkit.gripper.epick import EpickGripper
 from urkit.gripper.presets import DigitalGripperConfig, PRESETS
+from urkit.gripper.robotiq import RobotiqGripper
 from urkit.motion import FreedriveMode
 from urkit.robot import URRobot
 
@@ -325,14 +327,20 @@ def _draw_screen(
         joints = [0, 0, 0, 0, 0, 0]
 
     gripper_state = "None"
-    if robot.gripper:
-        pos_mm = robot.gripper.get_position_mm()
-        max_mm = robot.gripper.max_travel_mm()
+    gripper = robot.gripper
+    if gripper is not None:
+        pos_mm = gripper.get_position_mm()
+        max_mm = gripper.max_travel_mm()
         extra = ""
-        if hasattr(robot.gripper, '_force'):
-            extra += f" force={robot.gripper._force}{dim(' [7]')}"
-        if hasattr(robot.gripper, '_speed'):
-            extra += f" speed={robot.gripper._speed}{dim(' [6]')}"
+        if isinstance(gripper, EpickGripper):
+            # EPick: key [7] sets max vacuum, key [6] sets the grip timeout.
+            extra += (
+                f" vac={gripper._max_vacuum} min={gripper._min_vacuum}{dim(' [7]')}"
+                f" to={(gripper._timeout_ms / 1000):g}s{dim(' [6]')}"
+            )
+        elif isinstance(gripper, RobotiqGripper):
+            extra += f" force={gripper._force}{dim(' [7]')}"
+            extra += f" speed={gripper._speed}{dim(' [6]')}"
         if pos_mm is not None and max_mm is not None and max_mm > 0:
             pct = int((max_mm - pos_mm) / max_mm * 100)
             gripper_state = f"{green('Connected')} {pos_mm:.1f}mm ({pct}%)" + extra
@@ -1642,37 +1650,73 @@ def _teach_pendant(
                     command_handled = True
 
                 elif key == "6":
-                    if robot.gripper and hasattr(robot.gripper, 'set_speed'):
+                    gripper = robot.gripper
+                    if isinstance(gripper, EpickGripper):
+                        val = _read_input("  Grip timeout in s (0-10): ")
+                        if not val:
+                            messages.append("Cancelled")
+                        else:
+                            try:
+                                t_s = float(val)
+                                t = max(0, min(int(round(t_s * 10)), 100))
+                                gripper.set_grip_timeout(t)
+                                messages.append(f"Grip timeout set to {t / 10:g}s")
+                            except ValueError:
+                                messages.append("Invalid timeout value")
+                            except Exception as e:
+                                messages.append(f"Gripper error: {e}")
+                    elif isinstance(gripper, RobotiqGripper):
                         val = _read_input("  Gripper speed (0-100): ")
                         if not val:
                             messages.append("Cancelled")
                         else:
                             try:
                                 speed = float(val)
-                                robot.gripper.set_speed(max(0, min(speed, 100)))
-                                messages.append(f"Gripper speed set to {speed:.0f}")
+                                s = int(max(0, min(speed, 100)))
+                                gripper.set_speed(s)
+                                messages.append(f"Gripper speed set to {s}")
                             except ValueError:
                                 messages.append("Invalid speed value")
                             except Exception as e:
                                 messages.append(f"Gripper error: {e}")
+                    elif gripper is None:
+                        messages.append("No gripper configured")
                     else:
                         messages.append("Speed not available for this gripper")
                     command_handled = True
 
                 elif key == "7":
-                    if robot.gripper and hasattr(robot.gripper, 'set_force'):
+                    gripper = robot.gripper
+                    if isinstance(gripper, EpickGripper):
+                        val = _read_input("  Max vacuum (20-100): ")
+                        if not val:
+                            messages.append("Cancelled")
+                        else:
+                            try:
+                                vac = float(val)
+                                level = max(20, min(int(vac), 100))
+                                gripper.set_max_vacuum(level)
+                                messages.append(f"Max vacuum set to {level}%")
+                            except ValueError:
+                                messages.append("Invalid vacuum value")
+                            except Exception as e:
+                                messages.append(f"Gripper error: {e}")
+                    elif isinstance(gripper, RobotiqGripper):
                         val = _read_input("  Gripper force (0-100): ")
                         if not val:
                             messages.append("Cancelled")
                         else:
                             try:
                                 force = float(val)
-                                robot.gripper.set_force(max(0, min(force, 100)))
-                                messages.append(f"Gripper force set to {force:.0f}")
+                                f = int(max(0, min(force, 100)))
+                                gripper.set_force(f)
+                                messages.append(f"Gripper force set to {f}")
                             except ValueError:
                                 messages.append("Invalid force value")
                             except Exception as e:
                                 messages.append(f"Gripper error: {e}")
+                    elif gripper is None:
+                        messages.append("No gripper configured")
                     else:
                         messages.append("Force not available for this gripper")
                     command_handled = True

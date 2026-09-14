@@ -61,7 +61,8 @@ def main() -> None:
         type=str,
         default=None,
         help="Gripper preset (overrides config file). Use 'none' to disable gripper. "
-             "Accepts: 2f-85, 2f-140, hand-e, digital, none (case-insensitive, _ or -)",
+             "Accepts: 2f-85, 2f-140, hand-e, epick-<system>-<cup>, digital, none "
+             "(case-insensitive, _ or -)",
     )
     teach_parser.add_argument(
         "--gripper-pin",
@@ -73,13 +74,15 @@ def main() -> None:
         "--gripper-force",
         type=int,
         default=None,
-        help="Robotiq gripper force 0-100 (overrides config file)",
+        help="2F grip force 0-100 (EPick: use max_vacuum in the config's gripper_config) "
+             "(overrides config file)",
     )
     teach_parser.add_argument(
         "--gripper-speed",
         type=int,
         default=None,
-        help="Robotiq gripper speed 0-100 (overrides config file)",
+        help="2F movement speed 0-100 (EPick: use grip_timeout in the config's gripper_config) "
+             "(overrides config file)",
     )
     teach_parser.add_argument(
         "--gripper-close-on-high",
