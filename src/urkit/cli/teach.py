@@ -333,11 +333,9 @@ def _draw_screen(
         max_mm = gripper.max_travel_mm()
         extra = ""
         if isinstance(gripper, EpickGripper):
-            # EPick: key [7] sets max vacuum, key [6] sets the grip timeout.
-            extra += (
-                f" vac={gripper._max_vacuum} min={gripper._min_vacuum}{dim(' [7]')}"
-                f" to={(gripper._timeout_ms / 1000):g}s{dim(' [6]')}"
-            )
+            # EPick: key [7] sets max vacuum, key [6] sets min vacuum.
+            extra += f" max={gripper._max_vacuum}{dim(' [7]')}"
+            extra += f" min={gripper._min_vacuum}{dim(' [6]')}"
         elif isinstance(gripper, RobotiqGripper):
             extra += f" force={gripper._force}{dim(' [7]')}"
             extra += f" speed={gripper._speed}{dim(' [6]')}"
@@ -452,10 +450,14 @@ def _draw_screen(
         + _key_unit("1", "Linear", 12) + "  " + _key_unit("2", "Angular", 11) + "  " + yellow(".") + ": Reset"
     )
     if robot.gripper is not None:
-        lines.append(
+        gripper_line = (
             "  " + yellow("GRIPPER:".ljust(8)) + " "
-            + _key_unit("X", "Open", 12) + "  " + _key_unit("C", "Close", 11) + "  " + yellow("V") + ": Position"
+            + _key_unit("X", "Open", 12) + "  " + _key_unit("C", "Close", 11)
         )
+        if not isinstance(robot.gripper, EpickGripper):
+            # No finger travel on the EPick, so V is not exposed.
+            gripper_line += "  " + yellow("V") + ": Position"
+        lines.append(gripper_line)
     lines.append(
         "  " + yellow("POINTS:".ljust(8)) + " "
         + _key_unit("B", "Save", 12) + "  " + _key_unit("G", "Go To", 11) + "  " + yellow("H") + ": Delete"
@@ -1631,9 +1633,10 @@ def _teach_pendant(
                     command_handled = True
 
                 elif key == "v":
-                    if robot.gripper:
-                        prompt = "  Gripper position (0-100%): "
-                        val = _read_input(prompt)
+                    if robot.gripper is None:
+                        messages.append("No gripper configured")
+                    elif not isinstance(robot.gripper, EpickGripper):
+                        val = _read_input("  Gripper position (0-100%): ")
                         if not val:
                             messages.append("Cancelled")
                         else:
@@ -1645,24 +1648,23 @@ def _teach_pendant(
                                 messages.append("Invalid position value")
                             except Exception as e:
                                 messages.append(f"Gripper error: {e}")
-                    else:
-                        messages.append("No gripper configured")
+                    # The EPick has no finger travel; V is not exposed.
                     command_handled = True
 
                 elif key == "6":
                     gripper = robot.gripper
                     if isinstance(gripper, EpickGripper):
-                        val = _read_input("  Grip timeout in s (0-10): ")
+                        val = _read_input(f"  Min vacuum (10-{gripper._max_vacuum}): ")
                         if not val:
                             messages.append("Cancelled")
                         else:
                             try:
-                                t_s = float(val)
-                                t = max(0, min(int(round(t_s * 10)), 100))
-                                gripper.set_grip_timeout(t)
-                                messages.append(f"Grip timeout set to {t / 10:g}s")
+                                level = int(float(val))
+                                clamped = max(10, min(level, gripper._max_vacuum))
+                                gripper.set_min_vacuum(clamped)
+                                messages.append(f"Min vacuum set to {clamped}%")
                             except ValueError:
-                                messages.append("Invalid timeout value")
+                                messages.append("Invalid vacuum value")
                             except Exception as e:
                                 messages.append(f"Gripper error: {e}")
                     elif isinstance(gripper, RobotiqGripper):

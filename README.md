@@ -346,9 +346,9 @@ All movement and orientation keys support **hold-to-repeat**.
         <tr><th>Key</th><th>Action</th></tr>
         <tr><td><code>X</code></td><td>Open</td></tr>
         <tr><td><code>C</code></td><td>Close</td></tr>
-        <tr><td><code>V</code></td><td>Set position (mm)</td></tr>
-        <tr><td><code>6</code></td><td>Set speed / grip timeout</td></tr>
-        <tr><td><code>7</code></td><td>Set force / max vacuum</td></tr>
+        <tr><td><code>V</code></td><td>Set position % (2F only; hidden for the EPick)</td></tr>
+        <tr><td><code>6</code></td><td>Set speed (2F) / min vacuum (EPick)</td></tr>
+        <tr><td><code>7</code></td><td>Set force (2F) / max vacuum (EPick)</td></tr>
       </table>
     </td>
     <td align="center" style="width:33%">
@@ -551,7 +551,7 @@ gripper_config:
 
 With `set_max_vacuum(100)` the pump runs continuously and the gripper cannot confirm a grip; keep the max vacuum below 100% (60 works for typical cups and trays). The same physics applies at lower levels: if the max vacuum is higher than a leaky seal can reach, the pump keeps hunting and never enters the stable hold phase where the secured flag appears, so the grip times out (verified: a marginal-seal object gripped at 60/40 but timed out at 80/50 and 80/30). For leaky seals keep `max_vacuum` low and `min_vacuum` at or below what the seal sustains, not the other way around.
 
-`set_position_mm()`, `get_position_mm()`, and `max_travel_mm()` are not available: the EPick has no finger travel. `set_position_percent(p)` is repurposed as a manual vacuum override: `p=0` releases, `1-100` grips at that vacuum level (bypassing the secured-object wait).
+`set_position_mm()`, `get_position_mm()`, and `max_travel_mm()` are not available: the EPick has no finger travel. `set_position_percent(p)` is repurposed as a one-shot vacuum grip: `p=0` releases, `1-100` grips at that vacuum level with the normal secured-object wait (the teach pendant does not expose this; use [6]/[7] and C).
 
 **Payload and TCP.** The bare generator body is 0.706 kg, CoG `[0, 0, 0.0515]`, TCP `[0, 0, 0.113, 0, 0, 0]` (Robotiq EPick manual, Table 6-4); cups and brackets change all three. The kits ship cups in two sizes (Ø 40 mm and Ø 55 mm), so there is one preset per bracket system + cup size (configurations without cups cannot grip and have no preset):
 
