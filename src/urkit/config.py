@@ -70,6 +70,40 @@ __all__: list[str] = []
 
 _DEFAULT_NAME = "config.yaml"
 
+#: Every top-level key urkit reads anywhere (library or CLI). A config
+#: file is urkit-only: anything else is a mistake (usually a typo) and
+#: must fail loudly instead of being silently ignored.
+VALID_CONFIG_KEYS = frozenset({
+    "robot_ip",
+    "points_path",
+    "gripper",
+    "gripper_config",
+    "ik_reference",
+    "default_vel",
+    "default_acc",
+    "expert_mode",
+})
+
+
+def validate_config_keys(cfg: dict) -> None:
+    """Raise if cfg contains top-level keys urkit does not read.
+
+    The union set includes CLI-only keys (``expert_mode``) so a config
+    that is valid for ``urkit teach`` is also valid for ``from_config``.
+
+    Args:
+        cfg: Parsed config mapping.
+
+    Raises:
+        ValueError: If any key is not in :data:`VALID_CONFIG_KEYS`.
+    """
+    unknown = sorted(set(cfg) - VALID_CONFIG_KEYS, key=str)
+    if unknown:
+        raise ValueError(
+            "Unknown config key(s): " + ", ".join(str(k) for k in unknown) + ". "
+            "Valid keys: " + ", ".join(sorted(VALID_CONFIG_KEYS)) + "."
+        )
+
 
 def _resolve_config(path: Path | str | None = None) -> Path | None:
     """Find and return a config file path, or ``None`` if not found.
@@ -102,20 +136,42 @@ def _resolve_config(path: Path | str | None = None) -> Path | None:
 def _load_config(path: Path | str | None = None) -> dict[str, object]:
     """Load a YAML config file and return it as a dict.
 
-    Returns ``{}`` if the file is not found, empty, or invalid.
+    A config file either loads cleanly or the failure is raised with a
+    reason: malformed YAML, a non-mapping document, or unknown keys.
+    The only silent case is a missing file (``{}``), which is a
+    legitimate no-config state for the CLI.
 
     Args:
         path: Explicit path to a YAML file. If ``None``, searches for
             ``config.yaml`` in the project root, then the CWD.
 
     Returns:
-        A dict with config keys, or ``{}`` on any error.
+        A dict with config keys, or ``{}`` if no config file exists.
+
+    Raises:
+        ValueError: If the file is malformed YAML, cannot be read,
+            is not a YAML mapping, or contains unknown keys.
     """
     resolved = _resolve_config(path)
     if resolved is None:
         return {}
     try:
         with open(resolved, "r") as f:
-            return yaml.safe_load(f) or {}
-    except Exception:
-        return {}
+            data = yaml.safe_load(f)
+    except yaml.YAMLError as e:
+        raise ValueError(f"Malformed YAML in config {resolved}: {e}") from e
+    except UnicodeDecodeError as e:
+        raise ValueError(
+            f"Config {resolved} is not valid UTF-8 text: {e}"
+        ) from e
+    except OSError as e:
+        raise ValueError(f"Cannot read config {resolved}: {e}") from e
+    if data is None:
+        return {}  # empty file: legitimate no-config state
+    if not isinstance(data, dict):
+        raise ValueError(
+            f"Config {resolved} must be a YAML mapping, "
+            f"got {type(data).__name__}."
+        )
+    validate_config_keys(data)
+    return data

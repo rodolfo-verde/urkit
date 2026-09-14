@@ -1769,16 +1769,23 @@ def _teach_pendant(
 
                 # --- Speed slider ---
                 elif key == "0":
-                    val = _read_input("  Speed slider (0-100%): ")
+                    val = _read_input("  Speed slider (1-100%): ")
                     if not val:
                         messages.append("Cancelled")
                     else:
                         try:
                             pct = float(val)
-                            factor = max(0.0, min(pct / 100.0, 1.0))
-                            robot.speed_slider = factor
-                            state["speed_slider"] = factor
-                            messages.append(f"Speed slider: {int(factor * 100)}%")
+                            if pct <= 0:
+                                messages.append(
+                                    "0% freezes all motion and persists on the "
+                                    "robot. Enter 1-100."
+                                )
+                            else:
+                                pct = min(pct, 100.0)
+                                factor = pct / 100.0
+                                robot.speed_slider = factor
+                                state["speed_slider"] = factor
+                                messages.append(f"Speed slider: {pct:g}%")
                         except ValueError:
                             messages.append("Invalid speed value")
                         except MotionError as e:

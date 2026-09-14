@@ -16,7 +16,7 @@ if TYPE_CHECKING:
     from rtde.control_interface import RTDEControlInterface
     from rtde.receive_interface import RTDEReceiveInterface
 
-from urkit.config import _resolve_config
+from urkit.config import _resolve_config, validate_config_keys
 from urkit.connection import (
     _check_remote_mode,
     _connect_dashboard,
@@ -534,6 +534,9 @@ class URRobot:
                 raise ValueError(f"Config must be a YAML mapping, got {type(cfg).__name__}")
         else:
             cfg = config
+
+        # Unknown top-level keys fail loud (usually a typo).
+        validate_config_keys(cfg)
 
         # Resolve each parameter: explicit kwarg > config > default
         resolved_ip: str | None = ip or (cfg.get("robot_ip") if isinstance(cfg.get("robot_ip"), str) else None)  # type: ignore

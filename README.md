@@ -177,6 +177,8 @@ The CLI auto-loads `config.yaml` from the current working directory. Pass `--con
 | `default_acc` | Default linear acceleration (m/s²) | `0.3` |
 | `expert_mode` | Disable safety speed clamping | `false` |
 
+The loader fails loudly with a reason when a config file exists but is wrong: malformed YAML (file + parse error), a document that is not a mapping, or unknown top-level keys (offending keys + the valid ones; usually a typo). The table above is the complete key set. The only silent case is a missing file, where the CLI runs on flags and built-in defaults.
+
 ### Gripper Config
 
 Built-in preset with overrides:
@@ -828,7 +830,7 @@ robot.speed_slider = 0.5           # 50% velocity cap
 robot.speed_slider              # read current slider (0.0-1.0)
 ```
 
-The speed slider controls the pendant's speed multiplier. It's global, persistent, and affects all motion commands.
+The speed slider controls the pendant's speed multiplier. It's global, persistent (stored on the robot, survives restarts), and affects all motion commands. Because 0% persists as a silent freeze of all motion, the pendant's `[0]` prompt rejects 0 (1-100 only); a deliberate freeze is still possible via the API (`robot.speed_slider = 0`).
 
 #### Changing Default Speed & Acceleration
 
