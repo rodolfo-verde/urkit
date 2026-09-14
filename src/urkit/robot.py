@@ -6,11 +6,10 @@ and named point management into a single high-level interface.
 
 from __future__ import annotations
 
-from dataclasses import replace
 import logging
 import sys
 import time
-from typing import TYPE_CHECKING, Optional, Union
+from typing import TYPE_CHECKING, Any, Optional, Union
 from pathlib import Path
 
 if TYPE_CHECKING:
@@ -125,6 +124,38 @@ def _check_ik_reference_setting(value: object) -> None:
         )
 
 
+def _apply_physical_overrides(
+    gripper: GripperPreset | DigitalGripperConfig | None,
+    gripper_kwargs: dict[str, Any],
+    resolved: tuple[float, list[float], list[float] | None],
+) -> tuple[float, list[float], list[float] | None]:
+    """Pop mass/center_of_gravity/tcp_offset from gripper_kwargs.
+
+    These override the preset's physical properties (payload + tool),
+    they are not gripper backend parameters. Popping them here keeps
+    them from reaching the backend, where strict validation would
+    reject them as unknown.
+
+    Args:
+        gripper: Resolved gripper (only GripperPreset has physical
+            properties to override).
+        gripper_kwargs: Mutated in place; physical keys are removed.
+        resolved: (payload, cog, tcp) resolved so far.
+
+    Returns:
+        (payload, cog, tcp) with overrides applied.
+    """
+    resolved_payload, resolved_cog, resolved_tcp = resolved
+    if isinstance(gripper, GripperPreset):
+        if "mass" in gripper_kwargs:
+            resolved_payload = float(gripper_kwargs.pop("mass"))
+        if "center_of_gravity" in gripper_kwargs:
+            resolved_cog = list(gripper_kwargs.pop("center_of_gravity"))
+        if "tcp_offset" in gripper_kwargs:
+            resolved_tcp = list(gripper_kwargs.pop("tcp_offset"))
+    return resolved_payload, resolved_cog, resolved_tcp
+
+
 class URRobot:
     """High-level interface to a Universal Robots e-Series robot.
 
@@ -223,6 +254,16 @@ class URRobot:
             resolved_cog = list(gripper.center_of_gravity)
             resolved_tcp = list(gripper.tcp_offset)
             gripper_backend = gripper.backend
+        # Physical property overrides target the payload and tool, not
+        # the gripper backend. Pop them before backend construction so
+        # they never reach it. (Same semantics as from_config.)
+        resolved_payload, resolved_cog, resolved_tcp = _apply_physical_overrides(
+            gripper, gripper_kwargs, (resolved_payload, resolved_cog, resolved_tcp)
+        )
+        # Base payload for set_held_payload() resets.
+        self._base_payload: float = resolved_payload
+        self._base_cog: list[float] = list(resolved_cog)
+        self._held_payload: float = 0.0
         # DigitalGripperConfig has no payload specs.
 
         # Validate connection (ping + ports)
@@ -542,25 +583,14 @@ class URRobot:
         # Check nested gripper_config first, then top-level for backwards compat.
         nested_cfg = cfg.get("gripper_config") or {}
 
-        # Physical properties override the GripperPreset directly via replace()
+        # Physical properties (mass/CoG/TCP) flow through the constructor,
+        # which applies them to the preset and keeps them off the backend.
         physical_overrides = ("mass", "center_of_gravity", "tcp_offset")
         for key in physical_overrides:
             if key not in gripper_kwargs:
                 value = nested_cfg.get(key, cfg.get(key))  # type: ignore
                 if value is not None:
                     gripper_kwargs[key] = value
-
-        # Apply physical overrides to the resolved preset
-        if isinstance(resolved_gripper, GripperPreset):
-            apply_replace: dict[str, object] = {}
-            if "mass" in gripper_kwargs:
-                apply_replace["mass"] = float(gripper_kwargs.pop("mass"))
-            if "center_of_gravity" in gripper_kwargs:
-                apply_replace["center_of_gravity"] = list(gripper_kwargs.pop("center_of_gravity"))
-            if "tcp_offset" in gripper_kwargs:
-                apply_replace["tcp_offset"] = list(gripper_kwargs.pop("tcp_offset"))
-            if apply_replace:
-                resolved_gripper = replace(resolved_gripper, **apply_replace)  # type: ignore[arg-type]
 
         # Standard gripper kwargs (passed to Gripper.create)
         standard_overrides = ("max_mm", "force", "speed", "pin", "close_on_high")
@@ -920,19 +950,42 @@ class URRobot:
     def set_payload(self, mass: float, center_of_gravity: list[float] | None = None) -> None:
         """Set the tool payload mass and center of gravity.
 
+        While nothing is held, this also redefines the base payload
+        used by ``set_held_payload(0)`` resets. While a payload is
+        held, this raises: the mass is ambiguous (new total, new
+        base, or new object?), so reset the held payload first.
+
         Args:
             mass: Mass in kg.
             center_of_gravity: Center of gravity in tool coordinates
                 [x, y, z] in meters (default [0, 0, 0]).
 
         Raises:
-            MotionError: If the payload cannot be set.
+            MotionError: If a payload is held, mass is negative, or
+                the payload cannot be set.
         """
+        if self._held_payload > 0:
+            raise MotionError(
+                "Cannot set the payload while a payload is held "
+                f"({self._held_payload:.3f} kg). "
+                "Call set_held_payload(0) first."
+            )
         if mass < 0:
             raise MotionError(f"Payload mass must be >= 0, got {mass}.")
         cog = center_of_gravity if center_of_gravity is not None else [0.0, 0.0, 0.0]
         if len(cog) != 3:
             raise MotionError(f"Center of gravity must have 3 values, got {len(cog)}.")
+        self._apply_payload(mass, cog)
+        # A manual set while unheld redefines the base payload.
+        self._base_payload = mass
+        self._base_cog = cog
+
+    def _apply_payload(self, mass: float, cog: list[float]) -> None:
+        """Send mass + CoG to the robot (internal, no base bookkeeping).
+
+        Raises:
+            MotionError: If the payload cannot be set.
+        """
         # Try newer setTargetPayload first (PolyScope 5.11.0+), fall back to setPayload
         try:
             inertia = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
@@ -954,6 +1007,66 @@ class URRobot:
                 raise MotionError(f"Failed to set payload: {e2}")
         except Exception as e:
             raise MotionError(f"Failed to set payload: {e}")
+
+    @property
+    def base_payload(self) -> float:
+        """Base payload mass in kg (gripper + tooling, no held object)."""
+        return self._base_payload
+
+    @property
+    def held_payload(self) -> float:
+        """Mass of the currently held object in kg (0 = none)."""
+        return self._held_payload
+
+    def set_held_payload(
+        self, mass: float, center_of_gravity: list[float] | None = None
+    ) -> None:
+        """Add a held object to the payload, or reset to the base payload.
+
+        The controller compensates gravity using the payload, so the mass
+        of a picked-up object should be added before moving it. Passing
+        ``mass=0`` resets the payload to the base value (gripper +
+        tooling), not to zero.
+
+        The combined center of gravity is the mass-weighted average of
+        the base CoG and the held object's CoG.
+
+        Args:
+            mass: Held object mass in kg. 0 = reset to the base payload.
+            center_of_gravity: Held object CoG in tool coordinates
+                [x, y, z] in meters (default: the TCP position, i.e. the
+                object is gripped at its center).
+
+        Raises:
+            MotionError: If mass is negative, the CoG is malformed, or
+                the payload cannot be set.
+        """
+        if mass < 0:
+            raise MotionError(f"Held payload mass must be >= 0, got {mass}.")
+        if mass == 0:
+            self._apply_payload(self._base_payload, self._base_cog)
+            self._held_payload = 0.0
+            return
+        if center_of_gravity is None:
+            tcp = self.tcp_offset
+            cog = [tcp[0], tcp[1], tcp[2]]
+        else:
+            cog = list(center_of_gravity)
+        if len(cog) != 3:
+            raise MotionError(
+                f"Center of gravity must have 3 values, got {len(cog)}."
+            )
+        base_m = self._base_payload
+        total_m = base_m + mass
+        if base_m > 0:
+            combined = [
+                (base_m * b + mass * c) / total_m
+                for b, c in zip(self._base_cog, cog)
+            ]
+        else:
+            combined = cog
+        self._apply_payload(total_m, combined)
+        self._held_payload = mass
 
     # ------------------------------------------------------------------
     # Motion guard helpers

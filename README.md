@@ -120,8 +120,10 @@ robot.gripper.activate()
 robot.move_to("home")
 robot.move_to("pick", dz=0.05)  # 5cm above
 robot.gripper.close()
+robot.set_held_payload(0.05)    # picked up 50 g: arm compensates gravity
 robot.move_to("place")
 robot.gripper.open()
+robot.set_held_payload(0)       # released: back to gripper-only payload
 ```
 
 The typical workflow:
@@ -349,6 +351,7 @@ All movement and orientation keys support **hold-to-repeat**.
         <tr><td><code>V</code></td><td>Set position % (2F only; hidden for the EPick)</td></tr>
         <tr><td><code>6</code></td><td>Set speed (2F) / min vacuum (EPick)</td></tr>
         <tr><td><code>7</code></td><td>Set force (2F) / max vacuum (EPick)</td></tr>
+        <tr><td><code>9</code></td><td>Set held payload (kg, 0 = reset to base)</td></tr>
       </table>
     </td>
     <td align="center" style="width:33%">
@@ -960,6 +963,27 @@ TCP and payload can be set manually (gripper presets do this automatically):
 robot.tcp_offset = [0, 0, 0.15, 0, 0, 0]
 robot.set_payload(1.5, [0, 0, 0.05])  # mass (kg), center of gravity [x, y, z]
 ```
+
+**Held payload.** The controller compensates gravity using the payload, so add the mass of a picked-up object before moving it, and reset after release:
+
+```python
+robot.gripper.close()
+robot.set_held_payload(0.05)                        # holding 50 g, object CoG at the TCP
+robot.set_held_payload(0.05, cog=[0, 0, 0.25])      # object hangs below the flange
+robot.set_held_payload(0)                           # released: back to the base payload
+
+robot.base_payload     # gripper + tooling, kg (no held object)
+robot.held_payload     # currently held mass, kg (0 = none)
+robot.payload          # total (base + held), kg
+```
+
+`set_held_payload(0)` resets to the base payload captured at connect (the gripper preset plus any `mass=` / `center_of_gravity` / `tcp_offset` overrides), never to a literal zero. The combined CoG is the mass-weighted average of the base CoG and the object's CoG (tool coordinates, origin at the flange). A held object that extends the tool does not need a TCP change: give its CoG the deeper z instead.
+
+The base payload can be changed at runtime with `set_payload(...)`: while nothing is held, a manual `set_payload` call becomes the new base (custom fingers, a re-weighed tool). While a payload is held, `set_payload` raises, since the mass would be ambiguous: call `set_held_payload(0)` first.
+
+In the teach pendant, **9** sets the held payload (prompt: `Held payload in kg (0 = reset to base)`); the Payload status row shows the held mass and hints the key, e.g. `1.427kg +0.050 held [9]`. Useful when teaching points while gripping a real part.
+
+**How much to report.** There is no enforced minimum, and over-reporting is harmless. Practical guidance: below ~10 g the sag is sub-millimeter on any e-Series arm and not worth it; from ~50 g up (roughly 1% of a UR5e's rated payload) report it, since full-reach sag reaches several mm; in between, report it for slow precision work (insertion, contact moves) and skip it for coarse moves.
 
 Clean shutdown:
 

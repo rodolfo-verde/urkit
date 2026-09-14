@@ -385,6 +385,11 @@ def _draw_screen(
             tcp_label = f"{dim('0.0kg (no payload)')}"
         else:
             tcp_label = green(f"{payload:.3f}kg")
+        if robot.held_payload > 0:
+            tcp_label += f" {dim(f'+{robot.held_payload:.3f} held')}"
+        # Inline [9] hint, same pattern as the M/N/0/3 status-row hints:
+        # the footer grid is full on this row for 2F grippers.
+        tcp_label += f" {dim('[9]' if robot.held_payload > 0 else '[9: held]')}"
         lines.append(f" {blue('Payload:'.ljust(lw))} {tcp_label}")
     except Exception:
         pass
@@ -1721,6 +1726,28 @@ def _teach_pendant(
                         messages.append("No gripper configured")
                     else:
                         messages.append("Force not available for this gripper")
+                    command_handled = True
+
+                # --- Held payload (any gripper, none included) ---
+                elif key == "9":
+                    val = _read_input("  Held payload in kg (0 = reset to base): ")
+                    if not val:
+                        messages.append("Cancelled")
+                    else:
+                        try:
+                            kg = float(val)
+                            robot.set_held_payload(kg)
+                            if kg == 0:
+                                messages.append(
+                                    f"Held payload reset to base "
+                                    f"({robot.base_payload:.3f} kg)"
+                                )
+                            else:
+                                messages.append(f"Held payload set to {kg:.3f} kg")
+                        except ValueError:
+                            messages.append("Invalid mass value")
+                        except MotionError as e:
+                            messages.append(f"Payload error: {e}")
                     command_handled = True
 
                 # --- Point management ---
