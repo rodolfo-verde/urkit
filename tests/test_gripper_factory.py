@@ -6,6 +6,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
+import urkit.gripper.epick as epick
 from urkit.exceptions import GripperError
 from urkit.gripper import DigitalGripper, EpickGripper, RobotiqGripper
 from urkit.gripper.base import Gripper
@@ -17,8 +18,10 @@ class TestGripperFactory:
 
     def test_create_robotiq(self):
         mock_rtde = MagicMock()
-        mock_rtde.sendCustomScriptFunction.return_value = True
-        g = Gripper.create("robotiq", rtde_control=mock_rtde)
+        mock_rtde_r = MagicMock()
+        g = Gripper.create(
+            "robotiq", rtde_control=mock_rtde, rtde_receive=mock_rtde_r
+        )
         assert isinstance(g, RobotiqGripper)
         assert isinstance(g, Gripper)
 
@@ -49,10 +52,12 @@ class TestRobotiqGripper:
     """RobotiqGripper specific tests."""
 
     @pytest.fixture(autouse=True)
-    def _gripper(self, monkeypatch):
+    def _gripper(self):
         mock_rtde = MagicMock()
-        mock_rtde.sendCustomScriptFunction.return_value = True
-        self.gripper = RobotiqGripper(rtde_control=mock_rtde)
+        mock_rtde_r = MagicMock()
+        self.gripper = RobotiqGripper(
+            rtde_control=mock_rtde, rtde_receive=mock_rtde_r
+        )
         self.rtde = mock_rtde
 
     def test_init_validates_rtde(self):
@@ -293,6 +298,46 @@ class TestEpickGripper:
         g = self._gripper()
         with pytest.raises(GripperError, match="not activated"):
             g.close()
+
+    def test_activate_script_gated_on_connectivity(self):
+        """The activation script must be bounded: gated on the preamble's
+        connection scan (rq_activate() reaches rq_set_var()'s unbounded
+        ack loop with no gripper) and carrying the failure marker."""
+        import time as _time
+
+        g = self._gripper()
+        rtde = g._rtde
+
+        def executed_send(*a, **k):
+            _time.sleep(2.0)  # >= STALE_THRESHOLD_S: counts as executed
+            return True
+
+        rtde.sendCustomScriptFunction.side_effect = executed_send
+        g.activate()  # dt ~2.0 s < ACTIVATION_FAIL_THRESHOLD_S -> success
+        assert g.is_activated() is True
+        code = rtde.sendCustomScriptFunction.call_args_list[0][0][1]
+        assert "if (gripper_1_connected):" in code
+        assert "rq_activate_and_wait()" in code
+        assert "act_retries < 50" in code
+        assert f"sleep({epick.FAIL_MARKER_S})" in code
+
+    def test_activate_raises_when_robot_reports_not_activated(self, monkeypatch):
+        """The failure marker in the call duration makes activate() raise
+        instead of marking a no-gripper activation as success."""
+        import time as _time
+
+        monkeypatch.setattr(epick, "ACTIVATION_FAIL_THRESHOLD_S", 1.6)
+        g = self._gripper()
+
+        def slow_send(*a, **k):
+            _time.sleep(2.0)
+            return True
+
+        g._rtde.sendCustomScriptFunction.side_effect = slow_send
+        with pytest.raises(GripperError, match="not activated"):
+            g.activate()
+        assert g.is_activated() is False
+        assert g._activation_failed is True
 
     def test_grip_script_uses_advanced_mode_and_obj_min(self):
         g = self._gripper(max_vacuum=60)

@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+- A failed Robotiq gripper activation no longer poisons the process (RTDE register leak + blocking `disconnect()`). Root cause: the Robotiq preamble's `rq_activate_and_wait()` loops forever on the robot side when no gripper is connected. The Python-side timeout in `RobotiqGripper.activate()` abandoned the wait, but the robot kept running the script and the daemon thread stayed blocked in the native `sendCustomScriptFunction` (600 s internal timeout), holding the RTDE control register for the life of the process. Every later `URRobot` in the same process hung on register contention, and `URRobot.disconnect()` hung in `stopScript()`. The fix makes the failure recoverable in-process:
+  - The preamble's `rq_activate_and_wait()` is now bounded (50 x 0.1 s, ~5 s), and the activation script only runs it when the preamble's bounded connection scan found the gripper (`gripper_1_connected`): with no gripper, `rq_activate()` reaches `rq_set_var()`'s own unbounded ack-retry loop, which never returns on a dead socket, so the bound alone would not be enough. The robot-side script now always terminates on its own (~8 s worst case with no gripper), `sendCustomScriptFunction` returns, the daemon thread exits, and the control register is released
+  - Every gripper script (activate, move, deactivate) runs in a daemon thread guarded by a watchdog deadline, so a genuinely wedged native `sendCustomScriptFunction` (script faulted on the robot) raises `GripperError` instead of blocking the caller. `RobotiqGripper.activate()` uses a 7 s default deadline that sits in the gap between a connected gripper (~4-6 s: fast preamble scan + activation) and no gripper (~8 s: the preamble's full bounded connection scan), so a missing gripper times out and raises instead of being reported as success
+  - A second `activate()` while one is in flight raises instead of racing the RTDE control socket. The activation state (`activation_failed`, `activation_in_progress`) is internal; the user-facing contract is to catch `GripperError`, not to poll state
+  - `URRobot.disconnect()` skips `stopScript()` when a gripper activation failed or is still in flight (the C++ call blocks while a gripper script runs on the robot). The "safe to call even if `__init__` failed partway through" contract now holds for gripper failures too
+  - `EpickGripper.activate()` gets the same treatment: the connectivity gate plus the watchdog deadline. With the preamble now bounded, its old "watchdog catches the infinite loop" approach would have reported a no-gripper activation as success
+  - `Gripper.activate()` gains a `timeout` kwarg for a uniform interface across backends
+  After a failed activation the gripper stays disabled for the session, but the process is clean: connect the gripper and create a new `URRobot` to retry immediately. No process restart required. Verified on a real UR e-Series: with no gripper, `activate()` raises a clean `GripperError` in ~7 s, `disconnect()` returns in ~1 s, and a second `URRobot` in the same process connects and re-fails identically (no drift)
+
 ## [0.6.0] 2026-09-14
 
 ### Added

@@ -84,11 +84,15 @@ class DigitalGripper(Gripper):
             closed_when_high,
         )
 
-    def activate(self) -> None:
+    def activate(self, *, timeout: float = 20.0) -> None:
         """Activate the gripper.
 
+        Args:
+            timeout: Accepted for interface uniformity; ignored because
+                digital grippers always raise.
+
         Raises:
-            GripperError: Always — digital grippers don't require activation.
+            GripperError: Always. Digital grippers don't require activation.
         """
         raise GripperError(
             "Digital grippers do not require activation. "

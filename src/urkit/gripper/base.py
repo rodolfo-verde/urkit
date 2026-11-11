@@ -50,7 +50,7 @@ class Gripper(ABC):
             GripperError: If the operation fails.
         """
 
-    def activate(self) -> None:
+    def activate(self, *, timeout: float = 20.0) -> None:
         """Activate the gripper.
 
         No-op by default. Override in subclasses that require explicit
@@ -58,9 +58,24 @@ class Gripper(ABC):
         sequence). DigitalGripper raises GripperError to signal that
         activation is not needed.
 
+        Args:
+            timeout: Maximum seconds to wait for activation. Applies to
+                backends that run an activation sequence on the robot;
+                backends that raise (digital) ignore it.
+
         Raises:
             GripperError: If activation fails or is not applicable.
         """
+
+    def _script_may_be_running(self) -> bool:
+        """True if a gripper script may still be running on the robot.
+
+        ``URRobot.disconnect()`` uses this to skip ``stopScript()``: the
+        C++ call blocks while a gripper script runs, so it must not be
+        sent on that path. Defaults to False for backends without an
+        on-robot activation sequence.
+        """
+        return False
 
     def deactivate(self) -> None:
         """Deactivate the gripper.

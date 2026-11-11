@@ -124,6 +124,13 @@ BASE_OVERHEAD_S = 1.0
 # failure >= BASE_MIN + timeout + TAIL + FAIL_MARKER + 0.1 (T + 4.3).
 # T + 3.65 sits mid-gap.
 DECODE_MARGIN_S = 1.15
+# Activation decode: with a connected gripper the script finishes in
+# ~6-8 s (fast preamble + 3-5 s internal initialization). With no
+# gripper it runs the bounded no-gripper path: ~8 s preamble connection
+# scan + the failure marker + tail, ~13 s total. The threshold sits
+# mid-gap (a connected gripper taking >~7 s to initialize would false-
+# positive; the Robotiq spec is 3-5 s).
+ACTIVATION_FAIL_THRESHOLD_S = 11.0
 # Retry/prime behavior for stale returns.
 MAX_ATTEMPTS = 4
 PRIME_SETTLE_S = 0.5
@@ -287,6 +294,7 @@ class EpickGripper(Gripper):
         self._min_vacuum = min_vacuum
         self._timeout_ms = int(grip_timeout * 100)
         self._activated = False
+        self._activation_failed = False
 
         logger.info(
             "EpickGripper initialized (max vacuum=%d%%, min vacuum=%d%%, "
@@ -520,40 +528,83 @@ class EpickGripper(Gripper):
     # ------------------------------------------------------------------
 
     def activate(self, *, timeout: float = 20.0) -> None:
-        """Activate the gripper.
+        """Activate the gripper and verify the result on the robot.
 
         Checks the gripper's actual activation state on the robot using
         the preamble's ``rq_is_gripper_activated()``.  Only sends the
         activation command if the gripper is not already activated.
+        The robot-side script is fully bounded, so it always terminates
+        on its own even with no gripper connected; a failure marker
+        sleep encodes the no-gripper result in the call duration.
         Safe to call multiple times.
 
         Args:
-            timeout: Maximum seconds to wait for activation (default
-                20.0). The preamble's activation wait is unbounded, so
-                this watchdog prevents hanging when no gripper responds
-                on the RS485 bus.
+            timeout: Accepted for interface uniformity; the on-robot
+                script is bounded and the watchdog in _send_script
+                covers the rest.
 
         Raises:
-            GripperError: If activation times out or fails.
+            GripperError: If the robot reports the gripper as not
+            activated, or the script watchdog trips.
         """
         if self._activated:
             return
+        # Activation is gated on gripper_1_connected (set by the
+        # preamble's bounded connection scan): rq_activate() reaches
+        # rq_set_var()'s unbounded ack-retry loop, which never returns
+        # on a socket with no gripper behind it.
         activation_script = (
             ROBOTIQ_PREAMBLE
             + "if (not rq_is_gripper_activated()):\n"
-            + "    rq_activate_and_wait()\n"
+            + "    if (gripper_1_connected):\n"
+            + "        rq_activate_and_wait()\n"
+            + "    end\n"
+            + "end\n"
+            + "if (not rq_is_gripper_activated()):\n"
+            + f"    sleep({FAIL_MARKER_S})\n"
             + "end\n"
             + self._script_tail()
         )
-        # Expected max: the unbounded preamble wait cannot be bounded on
-        # the robot side, so use a generous watchdog instead.
-        self._send_script(activation_script, expected_max_s=20.0)
+        # Worst case: the no-gripper path (~8 s preamble connection
+        # scan + settle + failure marker + tail). A connected gripper
+        # skips the scan and the marker: base + 1 s + 3-5 s init + tail.
+        try:
+            dt = self._send_script(
+                activation_script,
+                expected_max_s=(
+                    BASE_OVERHEAD_S + 8.0 + 0.5
+                    + FAIL_MARKER_S + TAIL_SLEEP_S
+                ),
+            )
+        except GripperError:
+            # Watchdog tripped: a script may still be finishing on the
+            # robot (bounded, but the C++ call can outlive it). Mark the
+            # failure so URRobot.disconnect() skips stopScript().
+            self._activation_failed = True
+            raise
+        if dt >= ACTIVATION_FAIL_THRESHOLD_S:
+            self._activation_failed = True
+            raise GripperError(
+                "EPick activation failed: the robot reports the gripper "
+                "as not activated. Check that the gripper is physically "
+                "connected and powered, then retry."
+            )
+        self._activation_failed = False
         self._activated = True
-        logger.info("EPick gripper activated (checked robot state)")
+        logger.info("EPick gripper activated (verified on robot)")
 
     def is_activated(self) -> bool:
         """Check if the gripper has been activated."""
         return self._activated
+
+    def _script_may_be_running(self) -> bool:
+        """True if a gripper script may still be running on the robot.
+
+        A failed activation can leave a bounded gripper script finishing
+        on the robot; ``URRobot.disconnect()`` uses this to skip
+        ``stopScript()`` (the C++ call blocks while a gripper script runs).
+        """
+        return self._activation_failed
 
     def deactivate(self) -> None:
         """Deactivate the gripper (send ACT=0).
@@ -776,6 +827,7 @@ class EpickGripper(Gripper):
         using the gripper.
         """
         self._activated = False
+        self._activation_failed = False
         logger.debug("EPick gripper disconnected")
 
     def get_position_mm(self) -> float | None:

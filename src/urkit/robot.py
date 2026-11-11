@@ -232,6 +232,7 @@ class URRobot:
         self._default_acc = default_acc
         self._rtde_frequency = 500.0
         self._connection_lost = False
+        self._gripper_activation_failed = False
         self._move_frame: MoveFrame = MoveFrame.BASE
         _check_ik_reference_setting(ik_reference)
         self._ik_reference: str | list[float] | None = ik_reference
@@ -416,7 +417,7 @@ class URRobot:
 
         logger.info("URRobot initialized at %s", ip)
 
-    def _activate_gripper(self, *, timeout: float = 10.0) -> bool:
+    def _activate_gripper(self, *, timeout: float = 20.0) -> bool:
         """Activate the gripper with error handling (internal use).
 
         Tries to activate the configured gripper. If activation fails
@@ -428,7 +429,7 @@ class URRobot:
         when the gripper isn't connected.
 
         Args:
-            timeout: Maximum seconds to wait for activation (default 10.0).
+            timeout: Maximum seconds to wait for activation (default 20.0).
 
         Returns:
             ``True`` if the gripper was activated successfully,
@@ -438,16 +439,17 @@ class URRobot:
             return False
 
         try:
-            self._gripper.activate()
+            self._gripper.activate(timeout=timeout)
         except GripperError as e:
             _status(f"Gripper activation failed: {e}", done=False)
-            # Fail hard: the gripper is disabled for this session. The
-            # activation daemon thread stays blocked in the native
-            # sendCustomScriptFunction call (the robot runs a wait loop
-            # that only ends with a valid gripper response); it is a
-            # daemon, so it exits with the process. No silent
-            # reconnection: restart urkit to retry with a working
-            # gripper.
+            # Fail hard for this session: the gripper is disabled. The
+            # process itself is NOT poisoned: the robot-side activation
+            # script is bounded and terminates on its own, so the daemon
+            # thread exits and the RTDE control register is released.
+            # Record the failure so disconnect() skips stopScript() on
+            # the short window where a gripper script may still be
+            # finishing. A retry with a new URRobot works immediately.
+            self._gripper_activation_failed = True
             _gripper = self._gripper
             self._gripper = None
             try:
@@ -456,7 +458,8 @@ class URRobot:
                 pass
             logger.warning(
                 "Gripper disabled for this session after activation "
-                "failure. Restart urkit to retry with a connected gripper."
+                "failure. Connect the gripper and create a new URRobot "
+                "to retry."
             )
             return False
 
@@ -2335,7 +2338,11 @@ class URRobot:
         """Close RTDE connections, Dashboard socket, and points database.
 
         Call this when done to release resources. Safe to call even
-        if __init__ failed partway through. Idempotent: the second
+        if __init__ failed partway through, including a failed gripper
+        activation: stopScript() blocks in the C++ layer while a gripper
+        script is still running on the robot, so it is skipped on that
+        path (the bounded gripper script finishes on its own and
+        releases the RTDE control register). Idempotent: the second
         call (e.g. from __del__ during interpreter shutdown) is a
         no-op, so exit cannot double-stop the robot or double-close
         sockets while the C++ layer is already torn down.
@@ -2343,12 +2350,30 @@ class URRobot:
         if getattr(self, "_disconnected", False):
             return
         self._disconnected = True
+        gripper = getattr(self, '_gripper', None)
+        # A failed or in-flight gripper activation means a gripper
+        # script may still be running on the robot. stopScript() blocks
+        # in the C++ layer in that state, so skip it: the script is
+        # bounded and releases the control register on its own.
+        activation_blocked = (
+            getattr(self, '_gripper_activation_failed', False)
+            or (gripper is not None and gripper._script_may_be_running())
+        )
         try:
-            getattr(self, '_motion', None) and self._motion.stop_script()  # type: ignore
+            motion = getattr(self, '_motion', None)
+            if motion is not None:
+                if activation_blocked:
+                    logger.warning(
+                        "Skipping stopScript() on disconnect: a gripper "
+                        "activation script may still be running on the "
+                        "robot. It is bounded and will release the RTDE "
+                        "control register on its own."
+                    )
+                else:
+                    motion.stop_script()  # type: ignore
         except Exception:
             pass
         try:
-            gripper = getattr(self, '_gripper', None)
             if gripper is not None and hasattr(gripper, 'disconnect'):
                 gripper.disconnect()
         except Exception:

@@ -2,13 +2,17 @@
 
 from __future__ import annotations
 
+import threading
+import time
 from unittest.mock import MagicMock
 
 import pytest
 
+import urkit.gripper.robotiq as robotiq_mod
 from urkit.exceptions import GripperError
 from urkit.gripper.digital import DigitalGripper
 from urkit.gripper.robotiq import RobotiqGripper
+from urkit.gripper.robotiq_preamble import ROBOTIQ_PREAMBLE
 
 
 @pytest.fixture
@@ -20,7 +24,9 @@ def mock_rtde():
 
 @pytest.fixture
 def mock_rtde_r():
-    return MagicMock()
+    mock = MagicMock()
+    mock.getOutputIntRegister.return_value = 1
+    return mock
 
 
 # ------------------------------------------------------------------
@@ -31,9 +37,12 @@ def mock_rtde_r():
 class TestRobotiqActivation:
 
     @pytest.fixture(autouse=True)
-    def _gripper(self, mock_rtde):
+    def _gripper(self, mock_rtde, mock_rtde_r):
         self.rtde = mock_rtde
-        self.gripper = RobotiqGripper(rtde_control=mock_rtde)
+        self.rtde_r = mock_rtde_r
+        self.gripper = RobotiqGripper(
+            rtde_control=mock_rtde, rtde_receive=mock_rtde_r
+        )
 
     def test_is_activated_initially_false(self):
         """Gripper starts unactivated."""
@@ -64,6 +73,81 @@ class TestRobotiqActivation:
         assert call[0][0] == "_gripper_cmd"
         code = call[0][1]
         assert "rq_activate_and_wait()" in code
+
+    def test_activate_script_is_bounded(self):
+        """The activation script must terminate on its own (the
+        process-poisoning fix)."""
+        self.gripper.activate()
+        code = self.rtde.sendCustomScriptFunction.call_args_list[0][0][1]
+        # Activation gated on the preamble's bounded connection scan:
+        # rq_activate() reaches rq_set_var()'s unbounded ack loop on a
+        # socket with no gripper behind it.
+        assert "if (gripper_1_connected):" in code
+        assert "rq_activate_and_wait()" in code
+        # Bounded activation wait (the official preamble loops forever).
+        assert "act_retries < 50" in code
+
+    def test_activate_no_gripper_times_out(self, monkeypatch):
+        """With no gripper the preamble runs its full bounded scan, which
+        exceeds the deadline: activate() must raise, not set the flag."""
+        monkeypatch.setattr(robotiq_mod, "ACTIVATE_DEADLINE_S", 0.3)
+        self.rtde.sendCustomScriptFunction.side_effect = lambda *a, **k: (
+            time.sleep(2.0), True
+        )[1]
+        with pytest.raises(GripperError, match="did not complete"):
+            self.gripper.activate()
+        assert self.gripper.is_activated() is False
+        assert self.gripper._activation_failed is True
+
+    def test_activate_timeout_marks_activation_failed(self, monkeypatch):
+        """A wedged sendCustomScriptFunction trips the watchdog and marks
+        the activation as failed (so URRobot.disconnect() skips
+        stopScript())."""
+        monkeypatch.setattr(robotiq_mod, "ACTIVATE_DEADLINE_S", 0.3)
+        self.rtde.sendCustomScriptFunction.side_effect = lambda *a, **k: (
+            time.sleep(2.0), True
+        )[1]
+        with pytest.raises(GripperError, match="did not complete"):
+            self.gripper.activate()
+        assert self.gripper.is_activated() is False
+        assert self.gripper._activation_failed is True
+
+    def test_activate_in_progress_blocks_second_call(self):
+        """A second activate() while the send thread is running raises
+        instead of racing the RTDE control socket."""
+        started = threading.Event()
+
+        def slow_send(name, code):
+            started.set()
+            time.sleep(1.0)
+            return True
+
+        self.rtde.sendCustomScriptFunction.side_effect = slow_send
+        t = threading.Thread(
+            target=self.gripper.activate, kwargs={"timeout": 5.0}
+        )
+        t.start()
+        assert started.wait(2.0)
+        try:
+            with pytest.raises(GripperError, match="already in progress"):
+                self.gripper.activate()
+        finally:
+            t.join(5.0)
+        assert self.gripper.is_activated() is True
+
+    def test_activation_failed_reset_by_disconnect(self, monkeypatch):
+        """disconnect() clears the failed flag so a later activate() is a
+        fresh attempt."""
+        monkeypatch.setattr(robotiq_mod, "ACTIVATE_DEADLINE_S", 0.3)
+        self.rtde.sendCustomScriptFunction.side_effect = lambda *a, **k: (
+            time.sleep(2.0), True
+        )[1]
+        with pytest.raises(GripperError):
+            self.gripper.activate()
+        assert self.gripper._activation_failed is True
+        self.gripper.disconnect()
+        assert self.gripper._activation_failed is False
+
 
     def test_activate_is_idempotent(self):
         """Second activate() call is a no-op (local flag)."""
@@ -156,8 +240,30 @@ class TestRobotiqActivation:
 
     def test_max_travel_mm_custom(self):
         """max_travel_mm() returns the custom max_mm value."""
-        gripper = RobotiqGripper(rtde_control=self.rtde, max_mm=140)
+        gripper = RobotiqGripper(
+            rtde_control=self.rtde, rtde_receive=self.rtde_r, max_mm=140
+        )
         assert gripper.max_travel_mm() == 140.0
+
+
+class TestPreambleBoundedActivation:
+    """The vendored preamble's rq_activate_and_wait() must be bounded.
+
+    The official Robotiq preamble loops forever when no gripper is
+    connected, which leaves the robot running the script (and the RTDE
+    control register occupied) for the life of the process.
+    """
+
+    def test_activate_and_wait_has_retry_bound(self):
+        assert "act_retries < 50" in ROBOTIQ_PREAMBLE
+        assert "act_retries = act_retries + 1" in ROBOTIQ_PREAMBLE
+
+    def test_no_unbounded_activation_loop(self):
+        # The original unbounded loop has no exit condition.
+        assert (
+            "while(not rq_is_gripper_activated(gripper_socket)):"
+            not in ROBOTIQ_PREAMBLE
+        )
 
 
 # ------------------------------------------------------------------
