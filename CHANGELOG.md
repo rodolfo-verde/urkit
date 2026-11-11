@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.6.1] 2026-11-11
 
 ### Fixed
 - A failed Robotiq gripper activation no longer poisons the process (RTDE register leak + blocking `disconnect()`). Root cause: the Robotiq preamble's `rq_activate_and_wait()` loops forever on the robot side when no gripper is connected. The Python-side timeout in `RobotiqGripper.activate()` abandoned the wait, but the robot kept running the script and the daemon thread stayed blocked in the native `sendCustomScriptFunction` (600 s internal timeout), holding the RTDE control register for the life of the process. Every later `URRobot` in the same process hung on register contention, and `URRobot.disconnect()` hung in `stopScript()`. The fix makes the failure recoverable in-process:
